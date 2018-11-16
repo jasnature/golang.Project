@@ -1,0 +1,44 @@
+// configManager
+package base
+
+import (
+	"encoding/xml"
+	"fmt"
+	"io/ioutil"
+)
+
+type ConfigManager struct {
+	util     *util
+	config   ProxyConfig
+	fileName string
+}
+
+func NewConfigManager() (config *ConfigManager, err error) {
+
+	config = new(ConfigManager)
+	config.util = &util{}
+	tempPath, err := config.util.GetExecutePath()
+	if err != nil {
+		return nil, err
+	}
+
+	config.fileName = tempPath + "\\config.xml"
+	fmt.Println("ConfigPath=", config.fileName)
+
+	return config, err
+}
+
+func (this *ConfigManager) LoadConfig() (config ProxyConfig, err error) {
+
+	if ok, err := this.util.PathOrFileExists(this.fileName, 1); !ok {
+		return config, err
+	}
+
+	xmlBytes, err := ioutil.ReadFile(this.fileName)
+	if err != nil {
+		return config, err
+	}
+
+	err = xml.Unmarshal(xmlBytes, this.config)
+	return this.config, err
+}
