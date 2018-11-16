@@ -3,6 +3,7 @@ package main
 
 import (
 	"bufio"
+	"runtime"
 
 	"fmt"
 	"io"
@@ -11,10 +12,38 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"connProxy/base"
 )
+
+var configMgr *base.ConfigManager
+
+func init() {
+	fmt.Println("httpProxyServe init")
+	configMgr, _ = base.NewConfigManager()
+
+}
+
+type ProxyServer struct {
+	config base.ProxyConfig
+
+	linkCount int
+	curIpLink map[string]int
+
+	//start ip control
+	allowIpMap map[string]string
+	allowAllIp bool
+	//end ip control
+}
 
 func (proxy *ProxyServer) initProxy() {
 	proxy.wLog("ProxyServer init..")
+
+	tempConfig, err := configMgr.LoadConfig()
+	if err == nil {
+		proxy.config = tempConfig
+	}
+
 	proxy.allowIpMap = make(map[string]string, 5)
 	proxy.curIpLink = make(map[string]int, 10)
 
@@ -23,22 +52,22 @@ func (proxy *ProxyServer) initProxy() {
 	proxy.allowIpMap["localhost"] = "def"
 	proxy.allowIpMap["127.0.0.1"] = "def"
 
-	if proxy.allowIpStr != "" {
+	if proxy.config.AllowIpStr != "" {
 
-		if strings.TrimSpace(proxy.allowIpStr) == "*" {
+		if strings.TrimSpace(proxy.config.AllowIpStr) == "*" {
 			proxy.allowAllIp = true
 			proxy.allowIpMap = nil
 		} else {
 			proxy.allowAllIp = false
 
-			spstr := strings.Split(proxy.allowIpStr, ",")
+			spstr := strings.Split(proxy.config.AllowIpStr, ",")
 			for _, spitem := range spstr {
 				proxy.allowIpMap[spitem] = spitem
 			}
 		}
 	}
 
-	if proxy.printIpSummary {
+	if proxy.config.PrintIpSummary {
 
 		go func() {
 
@@ -50,27 +79,14 @@ func (proxy *ProxyServer) initProxy() {
 
 		}()
 	}
-}
 
-type ProxyServer struct {
-	port string
-	addr string
-
-	printLog       bool
-	printIpSummary bool
-	linkCount      int
-	curIpLink      map[string]int
-	buffSize       int
-
-	//start ip control
-	allowIpStr string
-	allowIpMap map[string]string
-	allowAllIp bool
-	//end ip control
+	if proxy.config.BuffSize <= 0 {
+		proxy.config.BuffSize = 1024 * 16
+	}
 }
 
 func (proxy *ProxyServer) wLog(format string, a ...interface{}) {
-	if proxy.printLog {
+	if proxy.config.PrintLog {
 		if a != nil {
 			fmt.Fprintf(os.Stdout, "\r\n"+format, a)
 		} else {
@@ -81,13 +97,13 @@ func (proxy *ProxyServer) wLog(format string, a ...interface{}) {
 
 func (proxy *ProxyServer) wErrlog(a ...interface{}) {
 
-	fmt.Fprintln(os.Stdout, "\r\n[Error] ", a)
+	fmt.Fprintf(os.Stdout, "\r\n[Error]\r\n %s \r\n---------------------------", a)
 
 }
 
 func (this_proxy *ProxyServer) StartProxy() {
 	this_proxy.initProxy()
-	addrStr := strings.Trim(this_proxy.addr, " ") + ":" + this_proxy.port
+	addrStr := strings.Trim(this_proxy.config.Addr, " ") + ":" + this_proxy.config.Port
 
 	link, err := net.Listen("tcp", addrStr)
 
@@ -119,17 +135,21 @@ func (this_proxy *ProxyServer) StartProxy() {
 }
 
 func (this_proxy *ProxyServer) handleConnection(clientConn net.Conn, err error) {
-	//	defer func() {
-	//		if p := recover(); p != nil {
-	//			this_proxy.wErrlog("##Recover##", p)
-	//		}
-	//	}()
+	defer func() {
+		if p := recover(); p != nil {
+			this_proxy.wErrlog("##Recover Info:##", p)
+			errbuf := make([]byte, 1<<20)
+			ernum := runtime.Stack(errbuf, false)
+			this_proxy.wErrlog("##Recover Stack:##\r\n", string(errbuf[:ernum]))
+		}
+	}()
 	//this_proxy.wLog("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<1")
 	defer this_proxy.DeferCallClose(clientConn)
 	clientConn.SetDeadline(time.Now().Add(time.Second * 30))
 
 	bufread := bufio.NewReader(clientConn)
 	request, err := http.ReadRequest(bufread)
+
 	//request.Header.Set("Accept-Encoding", "none")
 	//	if request != nil {
 	//		this_proxy.wLog("\r\n handleConnection,%+v", *request)
@@ -147,6 +167,7 @@ func (this_proxy *ProxyServer) handleConnection(clientConn net.Conn, err error) 
 	this_proxy.wLog("----------------%s", host)
 
 	proDialConn, err := net.DialTimeout("tcp", host, time.Second*20)
+
 	if proDialConn != nil {
 		proDialConn.SetDeadline(time.Now().Add(time.Second * 60))
 	}
@@ -171,8 +192,9 @@ func (this_proxy *ProxyServer) handleConnection(clientConn net.Conn, err error) 
 	//if clientConn have new request then read clientConn write proDialConn
 	go func() {
 		//this_proxy.wLog("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<3")
-		var buf []byte = make([]byte, this_proxy.buffSize)
+		var buf []byte = make([]byte, this_proxy.config.BuffSize)
 		io.CopyBuffer(proDialConn, clientConn, buf)
+
 		//		for {
 		//			n, e := clientConn.Read(temp)
 		//			fmt.Println("temp:", n, e)
@@ -189,24 +211,23 @@ func (this_proxy *ProxyServer) handleConnection(clientConn net.Conn, err error) 
 	go func() {
 		//this_proxy.wLog("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<4")
 
-		//var buf []byte = make([]byte, this_proxy.buffSize)
-		//io.CopyBuffer(clientConn, proDialConn, buf)
-		//clientConn.Write([]byte("<h1>inject</h1>"))
+		var buf []byte = make([]byte, this_proxy.config.BuffSize)
+		io.CopyBuffer(clientConn, proDialConn, buf)
 
-		var temp []byte = make([]byte, this_proxy.buffSize)
-		for {
-			n, e := proDialConn.Read(temp)
-			fmt.Println("temp:", n, e)
-			if e == io.EOF || n <= 0 {
+		//		var temp []byte = make([]byte, this_proxy.buffSize)
+		//		for {
+		//			n, e := proDialConn.Read(temp)
+		//			fmt.Println("\r\ntemp:", n, e)
+		//			if e == io.EOF || n <= 0 {
 
-				break
-			}
-			//			stemp := string(temp[:n]) + "inject"
-			//			stemp = strings.Replace(stemp, "1813", "1819", 1)
-			//			fmt.Println(stemp)
-			clientConn.Write(temp[:n])
+		//				break
+		//			}
+		//			//			stemp := string(temp[:n]) + "inject"
+		//			//			stemp = strings.Replace(stemp, "1813", "1819", 1)
+		//			//fmt.Println(string(temp[:n]))
+		//			clientConn.Write(temp[:n])
 
-		}
+		//		}
 
 		completedChan <- 1
 	}()
@@ -223,6 +244,15 @@ func (this_proxy *ProxyServer) handleConnection(clientConn net.Conn, err error) 
 			break
 		}
 	}
+
+	defer func(cr int) {
+		if completedChan != nil {
+			if cr < 2 {
+				this_proxy.wLog("again close completedChan")
+				close(completedChan)
+			}
+		}
+	}(result)
 }
 
 func (this_proxy *ProxyServer) processParams(clientConn net.Conn, accerr error) bool {
