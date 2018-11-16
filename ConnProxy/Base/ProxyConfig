@@ -1,0 +1,16 @@
+package base
+
+import (
+	_ "fmt"
+)
+
+type ProxyConfig struct {
+	Port string
+	Addr string
+
+	PrintLog       bool
+	PrintIpSummary bool
+
+	AllowIpStr string
+	BuffSize   int
+}
