@@ -3,14 +3,15 @@ package base
 
 import (
 	"encoding/xml"
-	"fmt"
+	"errors"
 	"io/ioutil"
+	"os"
 )
 
 type ConfigManager struct {
 	util     *util
-	config   ProxyConfig
-	fileName string
+	Config   ProxyConfig
+	FileName string
 }
 
 func NewConfigManager() (config *ConfigManager, err error) {
@@ -22,23 +23,43 @@ func NewConfigManager() (config *ConfigManager, err error) {
 		return nil, err
 	}
 
-	config.fileName = tempPath + "\\config.xml"
-	fmt.Println("ConfigPath=", config.fileName)
+	config.FileName = tempPath + `config.xml`
+	//fmt.Println("ConfigPath=", config.fileName)
 
 	return config, err
 }
 
 func (this *ConfigManager) LoadConfig() (config ProxyConfig, err error) {
 
-	if ok, err := this.util.PathOrFileExists(this.fileName, 1); !ok {
+	if ok, err := this.util.PathOrFileExists(this.FileName, 1); !ok {
 		return config, err
 	}
-
-	xmlBytes, err := ioutil.ReadFile(this.fileName)
+	//fmt.Println("load", 1)
+	xmlBytes, err := ioutil.ReadFile(this.FileName)
 	if err != nil {
 		return config, err
 	}
+	//fmt.Println("load", 2, xmlBytes)
+	err = xml.Unmarshal(xmlBytes, &this.Config)
+	return this.Config, err
+}
 
-	err = xml.Unmarshal(xmlBytes, this.config)
-	return this.config, err
+func (this *ConfigManager) SaveConfig(config *ProxyConfig) (err error) {
+	if config != nil {
+
+		tbytes, err := xml.MarshalIndent(config, "", "	")
+
+		if err != nil {
+			return err
+		}
+
+		err = ioutil.WriteFile(this.FileName, tbytes, os.ModePerm)
+
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}
+	return errors.New("config is nil")
 }
