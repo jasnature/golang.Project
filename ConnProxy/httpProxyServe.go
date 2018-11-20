@@ -3,13 +3,13 @@ package main
 
 import (
 	"bufio"
-	"runtime"
-
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"os"
+	_ "reflect"
+	"runtime"
 	"strings"
 	"time"
 
@@ -39,10 +39,18 @@ type ProxyServer struct {
 func (proxy *ProxyServer) initProxy() {
 	proxy.wLog("ProxyServer init..")
 
-	tempConfig, err := configMgr.LoadConfig()
-	if err == nil {
+	tempConfig, esl := configMgr.LoadConfig()
+	//fmt.Println("load", esl)
+	if esl == nil {
+		fmt.Printf("\r\nload local xml config file[%s] init success!\r\n", configMgr.FileName)
 		proxy.config = tempConfig
+		//configMgr.SaveConfig(&proxy.config)
+	} else {
+		fmt.Println("cannot find local xml config, use default inner params init.")
 	}
+
+	//esl := configMgr.SaveConfig(&proxy.config)
+	//fmt.Println("save", esl)
 
 	proxy.allowIpMap = make(map[string]string, 5)
 	proxy.curIpLink = make(map[string]int, 10)
@@ -292,7 +300,8 @@ func (this_proxy *ProxyServer) processParams(clientConn net.Conn, accerr error) 
 
 func (this_proxy *ProxyServer) DeferCallClose(closer io.Closer) {
 	if closer != nil {
-		this_proxy.wLog("Close call=%+v", closer)
+		//var me, _ = reflect.TypeOf(closer).MethodByName("RemoteAddr")
+		this_proxy.wLog("Close call=%s", closer)
 		closer.Close()
 	}
 }
