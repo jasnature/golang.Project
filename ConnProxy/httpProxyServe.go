@@ -1,8 +1,9 @@
 // httpProxyServe
-package main
+package connProxy
 
 import (
 	"bufio"
+	"connProxy/base"
 	"fmt"
 	"io"
 	"net"
@@ -11,9 +12,8 @@ import (
 	_ "reflect"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"time"
-
-	"connProxy/base"
 )
 
 var configMgr *base.ConfigManager
@@ -27,7 +27,7 @@ func init() {
 type ProxyServer struct {
 	config base.ProxyConfig
 
-	linkCount int
+	linkCount int32
 	curIpLink map[string]int
 
 	//start ip control
@@ -135,8 +135,7 @@ func (this_proxy *ProxyServer) StartProxy() {
 		}
 
 		this_proxy.wLog("handle conn info: %+v", conn.RemoteAddr().String())
-		this_proxy.linkCount++
-
+		this_proxy.linkCount = atomic.AddInt32(&this_proxy.linkCount, 1)
 		go this_proxy.handleConnection(conn, accerr)
 	}
 
@@ -247,6 +246,7 @@ func (this_proxy *ProxyServer) handleConnection(clientConn net.Conn, err error) 
 		result += <-completedChan
 		this_proxy.wLog("<-completedChan=%d", result)
 		if result >= 2 {
+			this_proxy.linkCount = atomic.AddInt32(&this_proxy.linkCount, -1)
 			close(completedChan)
 			this_proxy.wLog("  handleConnection end")
 			break
@@ -257,6 +257,7 @@ func (this_proxy *ProxyServer) handleConnection(clientConn net.Conn, err error) 
 		if completedChan != nil {
 			if cr < 2 {
 				this_proxy.wLog("again close completedChan")
+				this_proxy.linkCount = atomic.AddInt32(&this_proxy.linkCount, -1)
 				close(completedChan)
 			}
 		}
