@@ -1,0 +1,9 @@
+<ProxyConfig>
+	<Port>9696</Port>
+	<Addr></Addr>
+	<PrintLog>false</PrintLog>
+	<PrintIpSummary>false</PrintIpSummary>
+	<AllowIpStr>*</AllowIpStr>
+	<BuffSize>16384</BuffSize>
+	<AllowMaxConn>0</AllowMaxConn>
+</ProxyConfig>
