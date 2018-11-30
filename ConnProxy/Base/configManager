@@ -9,7 +9,7 @@ import (
 )
 
 type ConfigManager struct {
-	util     *util
+	util     *Util
 	Config   ProxyConfig
 	FileName string
 }
@@ -17,7 +17,7 @@ type ConfigManager struct {
 func NewConfigManager() (config *ConfigManager, err error) {
 
 	config = new(ConfigManager)
-	config.util = &util{}
+	config.util = &Util{}
 	tempPath, err := config.util.GetExecutePath()
 	if err != nil {
 		return nil, err
@@ -41,6 +41,7 @@ func (this *ConfigManager) LoadConfig() (config ProxyConfig, err error) {
 	}
 	//fmt.Println("load", 2, xmlBytes)
 	err = xml.Unmarshal(xmlBytes, &this.Config)
+
 	return this.Config, err
 }
 
