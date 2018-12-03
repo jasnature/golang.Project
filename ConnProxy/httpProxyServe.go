@@ -1,5 +1,5 @@
 // httpProxyServe
-package connProxy
+package main
 
 import (
 	"bufio"
