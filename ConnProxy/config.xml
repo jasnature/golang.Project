@@ -1,9 +1,10 @@
 <ProxyConfig>
 	<Port>9696</Port>
 	<Addr></Addr>
-	<PrintLog>false</PrintLog>
-	<PrintIpSummary>false</PrintIpSummary>
+	<!--<PassProxy>11.11.11.11:1111</PassProxy>-->
+	<PrintLog>true</PrintLog>
+	<PrintIpSummary>true</PrintIpSummary>
 	<AllowIpStr>*</AllowIpStr>
 	<BuffSize>16384</BuffSize>
-	<AllowMaxConn>0</AllowMaxConn>
+	<AllowMaxConn>10</AllowMaxConn>
 </ProxyConfig>
