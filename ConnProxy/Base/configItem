@@ -4,6 +4,8 @@ type ProxyConfig struct {
 	Port string
 	Addr string
 
+	PassProxy string
+
 	PrintLog       bool
 	PrintIpSummary bool
 
