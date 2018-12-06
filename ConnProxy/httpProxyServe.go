@@ -34,17 +34,18 @@ type ProxyServer struct {
 	allowIpMap map[string]string
 	allowAllIp bool
 	//end ip control
+
+	closerConnNotify chan string
 }
 
 func (this *ProxyServer) initProxy() {
 	this.wLog("ProxyServer init..")
 
 	tempConfig, esl := configMgr.LoadConfig()
-	//fmt.Println("load", esl)
+
 	if esl == nil {
 		fmt.Printf("\r\nload local xml config file[%s] init success!\r\n", configMgr.FileName)
 		this.config = tempConfig
-		//configMgr.SaveConfig(&this.config)
 	} else {
 		fmt.Println("cannot find local xml config, use default inner params init.")
 	}
@@ -55,10 +56,10 @@ func (this *ProxyServer) initProxy() {
 	this.allowIpMap = make(map[string]string, 5)
 	this.curIpLink = make(map[string]int, 10)
 
-	this.allowIpMap["."] = "def"
-	this.allowIpMap["[::1]"] = "def"
-	this.allowIpMap["localhost"] = "def"
-	this.allowIpMap["127.0.0.1"] = "def"
+	this.allowIpMap["."] = "1"
+	this.allowIpMap["[::1]"] = "1"
+	this.allowIpMap["localhost"] = "1"
+	this.allowIpMap["127.0.0.1"] = "1"
 
 	if this.config.AllowIpStr != "" {
 
@@ -81,7 +82,7 @@ func (this *ProxyServer) initProxy() {
 
 			for {
 				time.Sleep(time.Second * 10)
-				fmt.Printf("\r\nSum Process Count -> %d,Current Process Count-> %d,Current Link Address list-> %v", this.totalEnterCounter, this.linkingCount, this.curIpLink)
+				fmt.Printf("Sum Process Count -> %d,Current Process Count-> %d,Current Link Address list-> %v \r\n", this.totalEnterCounter, this.linkingCount, this.curIpLink)
 
 			}
 
@@ -95,12 +96,21 @@ func (this *ProxyServer) initProxy() {
 	if this.config.AllowMaxConn <= 0 {
 		this.config.AllowMaxConn = 100
 	}
+
+	this.closerConnNotify = make(chan string, int(this.config.AllowMaxConn/2))
+
+	go func() {
+		for removeIpPort := range this.closerConnNotify {
+			this.wLog("removeIpPort= %s", removeIpPort)
+			delete(this.curIpLink, removeIpPort)
+		}
+	}()
 }
 
 func (this *ProxyServer) wLog(format string, a ...interface{}) {
 	if this.config.PrintLog {
 		if a != nil {
-			fmt.Fprintf(os.Stdout, "\r\n"+format, a)
+			fmt.Fprintf(os.Stdout, "\r\n"+format+"\r\n", a)
 		} else {
 			fmt.Fprintln(os.Stdout, format)
 		}
@@ -115,7 +125,7 @@ func (this *ProxyServer) wErrlog(a ...interface{}) {
 
 func (this *ProxyServer) StartProxy() {
 	this.initProxy()
-	addrStr := strings.Trim(this.config.Addr, " ") + ":" + this.config.Port
+	addrStr := ":" + this.config.Port
 
 	link, err := net.Listen("tcp", addrStr)
 
@@ -129,8 +139,6 @@ func (this *ProxyServer) StartProxy() {
 	for {
 
 		conn, accerr := link.Accept()
-		//fmt.Println("link->", conn.RemoteAddr())
-		//this_proxy.wLog("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<processParams")
 		result := this.processParams(conn, accerr)
 
 		if !result {
@@ -147,7 +155,9 @@ func (this *ProxyServer) StartProxy() {
 }
 
 func (this *ProxyServer) handleConnection(clientConn net.Conn, err error) {
+	this.linkingCount = atomic.AddInt32(&this.linkingCount, 1)
 	defer func() {
+		this.linkingCount = atomic.AddInt32(&this.linkingCount, -1)
 		if p := recover(); p != nil {
 			this.wErrlog("##Recover Info:##", p)
 			errbuf := make([]byte, 1<<20)
@@ -155,7 +165,7 @@ func (this *ProxyServer) handleConnection(clientConn net.Conn, err error) {
 			this.wErrlog("##Recover Stack:##\r\n", string(errbuf[:ernum]))
 		}
 	}()
-	//this_proxy.wLog("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<1")
+
 	defer this.DeferCallClose(clientConn)
 	clientConn.SetDeadline(time.Now().Add(time.Second * 30))
 
@@ -172,20 +182,18 @@ func (this *ProxyServer) handleConnection(clientConn net.Conn, err error) {
 		if err != nil {
 			return
 		}
-		this.wLog("Dial proxy connection,host= %s,URL= %s", requestBuild.Host, requestBuild.URL)
+		this.wLog("Request Build,host= %s,URL= %s", requestBuild.Host, requestBuild.URL)
 
 		dialHost = requestBuild.Host
 
 		if ppindex := strings.LastIndex(dialHost, ":"); ppindex < 0 {
 			dialHost += ":80"
 		}
-
-		this.wLog("----------------%s", dialHost)
 	}
 
-	this.wLog("call DialTimeout:%s", dialHost)
+	this.wLog("Call DialTimeout:%s", dialHost)
 	proDialConn, err := net.DialTimeout("tcp", dialHost, time.Second*10)
-	this.linkingCount = atomic.AddInt32(&this.linkingCount, 1)
+
 	if proDialConn != nil {
 		proDialConn.SetDeadline(time.Now().Add(time.Second * 30))
 	}
@@ -210,7 +218,6 @@ func (this *ProxyServer) handleConnection(clientConn net.Conn, err error) {
 		}
 	}
 
-	//this_proxy.wLog("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<2")
 	var completedChan chan int = make(chan int)
 
 	//if clientConn have new request then read clientConn write proDialConn
@@ -235,7 +242,6 @@ func (this *ProxyServer) handleConnection(clientConn net.Conn, err error) {
 
 	//if proDialConn have new respone then read proDialConn write clientConn
 	go func() {
-		//this_proxy.wLog("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<4")
 
 		var buf []byte = make([]byte, this.config.BuffSize)
 		io.CopyBuffer(clientConn, proDialConn, buf)
@@ -255,23 +261,22 @@ func (this *ProxyServer) handleConnection(clientConn net.Conn, err error) {
 	}()
 
 	defer this.DeferCallClose(proDialConn)
-	//this_proxy.wLog("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<5")
+
 	var result int = 0
 	for {
 		result += <-completedChan
-		this.wLog("<-completedChan=%d\r\n", result)
+		this.wLog("<-completedChan=%d", result)
 		if result >= 2 {
-			this.linkingCount = atomic.AddInt32(&this.linkingCount, -1)
+
 			close(completedChan)
 			this.wLog("closed all channel Connection end,linkingCount = %d", this.linkingCount)
 			break
 		}
 	}
 
-	defer func(cr int) {
+	defer func(re int) {
 		if completedChan != nil {
-			if cr < 2 {
-				this.linkingCount = atomic.AddInt32(&this.linkingCount, -1)
+			if re < 2 {
 				this.wLog("if not closed then again to close Chan. linkingCount = %d", this.linkingCount)
 				close(completedChan)
 			}
@@ -281,9 +286,9 @@ func (this *ProxyServer) handleConnection(clientConn net.Conn, err error) {
 
 func (this *ProxyServer) processParams(clientConn net.Conn, accerr error) bool {
 
-	reip := clientConn.RemoteAddr().String()
+	reip_port := clientConn.RemoteAddr().String()
 
-	if reip == "" {
+	if reip_port == "" {
 		go this.DeferCallClose(clientConn)
 		return false
 	}
@@ -294,30 +299,33 @@ func (this *ProxyServer) processParams(clientConn net.Conn, accerr error) bool {
 	}
 
 	if !this.allowAllIp {
-		i := strings.LastIndex(reip, ":")
-		reip = reip[:i]
-		//fmt.Println("link->", reip)
+		i := strings.LastIndex(reip_port, ":")
+		reip := reip_port[:i]
 		if _, ok := this.allowIpMap[reip]; !ok {
-			//fmt.Println("disallow->", reip)
-			clientConn.Write([]byte("HTTP/1.1 403 Forbidden\r\n\r\n"))
+			this.wLog("disallow->%s", reip)
+			clientConn.Write([]byte("HTTP/1.1 403 Forbidden  \r\nServer: JProxy-1.0 \r\nContent-Type: text/html \r\nConnection:keep-alive \r\nContent-Length: 13 \r\n\r\n Deny access."))
 			go this.DeferCallClose(clientConn)
 			return false
 		}
 	}
 
-	if count, ok := this.curIpLink[reip]; ok {
-		this.curIpLink[reip] = count + 1
+	if count, ok := this.curIpLink[reip_port]; ok {
+		this.curIpLink[reip_port] = count + 1
 	} else {
-		this.curIpLink[reip] = 1
+		this.curIpLink[reip_port] = 1
 	}
 
 	return true
 }
 
-func (this *ProxyServer) DeferCallClose(closer io.Closer) {
+func (this *ProxyServer) DeferCallClose(closer net.Conn) {
 	if closer != nil {
-		//var me, _ = reflect.TypeOf(closer).MethodByName("RemoteAddr")
-		this.wLog("Close call=%s", closer)
+		reip := closer.RemoteAddr().String()
+		this.wLog("Close call=%s", reip)
+
+		//if conn, ok := closer.(net.Conn); ok {
+		this.closerConnNotify <- reip
+
 		closer.Close()
 	}
 }
