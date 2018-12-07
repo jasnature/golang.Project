@@ -2,7 +2,6 @@ package base
 
 type ProxyConfig struct {
 	Port string
-	Addr string
 
 	PassProxy string
 
@@ -13,5 +12,7 @@ type ProxyConfig struct {
 
 	BuffSize int
 
-	AllowMaxConn int
+	AllowMaxConn int32
+
+	Timeout int
 }
