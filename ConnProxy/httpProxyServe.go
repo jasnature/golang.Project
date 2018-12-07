@@ -16,6 +16,7 @@ import (
 )
 
 var configMgr *base.ConfigManager
+var timeout_dur time.Duration
 
 func init() {
 	fmt.Println("httpProxyServe init")
@@ -35,6 +36,11 @@ type ProxyServer struct {
 	allowAllIp bool
 	//end ip control
 
+	//make buffer by allmaxconn
+	enterConnectionNotify chan int
+	// not buffer
+	outConnectionNotify chan int
+	//make buffer by allmaxconn
 	closerConnNotify chan string
 }
 
@@ -44,10 +50,10 @@ func (this *ProxyServer) initProxy() {
 	tempConfig, esl := configMgr.LoadConfig()
 
 	if esl == nil {
-		fmt.Printf("\r\nload local xml config file[%s] init success!\r\n", configMgr.FileName)
+		fmt.Printf("\r\nLoad local xml config file[%s] init success!", configMgr.FileName)
 		this.config = tempConfig
 	} else {
-		fmt.Println("cannot find local xml config, use default inner params init.")
+		fmt.Println("Cannot find local xml config, use default inner params init.")
 	}
 
 	//esl := configMgr.SaveConfig(&proxy.config)
@@ -96,8 +102,17 @@ func (this *ProxyServer) initProxy() {
 	if this.config.AllowMaxConn <= 0 {
 		this.config.AllowMaxConn = 100
 	}
+	this.enterConnectionNotify = make(chan int, this.config.AllowMaxConn-1)
+	this.wLog("----%d", cap(this.enterConnectionNotify))
 
-	this.closerConnNotify = make(chan string, int(this.config.AllowMaxConn/2))
+	this.outConnectionNotify = make(chan int)
+
+	if this.config.Timeout < 2 {
+		this.config.Timeout = 10
+	}
+	timeout_dur = time.Second * time.Duration(this.config.Timeout)
+
+	this.closerConnNotify = make(chan string, int(this.config.AllowMaxConn))
 
 	go func() {
 		for removeIpPort := range this.closerConnNotify {
@@ -134,11 +149,12 @@ func (this *ProxyServer) StartProxy() {
 	if err != nil {
 		this.wErrlog("Listen link", err.Error())
 	}
-	fmt.Printf("\r\nlister success : %+v \r\naddress: %s \r\n", this, addrStr)
-
+	fmt.Printf("\r\n[Lister success info]: %+v \r\n\r\n", this.config)
+	go this.enterControl()
 	for {
 
 		conn, accerr := link.Accept()
+		this.wLog("Accept conn: %s", conn.RemoteAddr().String())
 		result := this.processParams(conn, accerr)
 
 		if !result {
@@ -146,18 +162,44 @@ func (this *ProxyServer) StartProxy() {
 			continue
 		}
 
-		this.wLog("handle conn info: %+v", conn.RemoteAddr().String())
+		atomic.AddInt64(&this.totalEnterCounter, 1)
+		select {
+		case <-this.enterConnectionNotify:
+			atomic.AddInt32(&this.linkingCount, 1)
+			this.wLog("handleConnection: %s", conn.RemoteAddr().String())
+			go this.handleConnection(conn)
+		case <-time.After(timeout_dur / 2):
+			this.wLog("timeout conn: %s", conn.RemoteAddr().String())
+			func() {
+				defer this.DeferCallClose(conn)
+				defer atomic.AddInt32(&this.linkingCount, -1)
+			}()
+		}
 
-		this.totalEnterCounter = atomic.AddInt64(&this.totalEnterCounter, 1)
-		go this.handleConnection(conn, accerr)
 	}
 
 }
 
-func (this *ProxyServer) handleConnection(clientConn net.Conn, err error) {
-	this.linkingCount = atomic.AddInt32(&this.linkingCount, 1)
+func (this *ProxyServer) enterControl() {
+	var lc int32
+	for {
+		lc = atomic.LoadInt32(&this.linkingCount)
+		if lc < this.config.AllowMaxConn {
+			this.wLog("add enterControl")
+			this.enterConnectionNotify <- 1
+		} else {
+			this.wLog("wait enterControl")
+			<-this.outConnectionNotify
+		}
+	}
+}
+
+func (this *ProxyServer) handleConnection(clientConn net.Conn) {
+	var err error
 	defer func() {
-		this.linkingCount = atomic.AddInt32(&this.linkingCount, -1)
+		this.wLog("release wait enterControl and linkingCount-1")
+		atomic.AddInt32(&this.linkingCount, -1)
+		this.outConnectionNotify <- 1
 		if p := recover(); p != nil {
 			this.wErrlog("##Recover Info:##", p)
 			errbuf := make([]byte, 1<<20)
@@ -167,7 +209,8 @@ func (this *ProxyServer) handleConnection(clientConn net.Conn, err error) {
 	}()
 
 	defer this.DeferCallClose(clientConn)
-	clientConn.SetDeadline(time.Now().Add(time.Second * 30))
+
+	clientConn.SetDeadline(time.Now().Add(timeout_dur))
 
 	var dialHost string
 	var requestBuild *http.Request = nil
@@ -191,17 +234,19 @@ func (this *ProxyServer) handleConnection(clientConn net.Conn, err error) {
 		}
 	}
 
-	this.wLog("Call DialTimeout:%s", dialHost)
-	proDialConn, err := net.DialTimeout("tcp", dialHost, time.Second*10)
+	this.wLog("Call DialByTimeout:%s", dialHost)
+	proDialConn, err := net.DialTimeout("tcp", dialHost, timeout_dur)
 
 	if proDialConn != nil {
-		proDialConn.SetDeadline(time.Now().Add(time.Second * 30))
+		proDialConn.SetDeadline(time.Now().Add(timeout_dur))
 	}
 
 	if err != nil {
 		this.wErrlog("proConn", err.Error())
 		return
 	}
+
+	defer this.DeferCallClose(proDialConn)
 
 	if requestBuild != nil && strings.TrimSpace(this.config.PassProxy) == "" {
 		if requestBuild.Method == "CONNECT" {
@@ -226,16 +271,6 @@ func (this *ProxyServer) handleConnection(clientConn net.Conn, err error) {
 		var buf []byte = make([]byte, this.config.BuffSize)
 		io.CopyBuffer(proDialConn, clientConn, buf)
 
-		//		var temp []byte = make([]byte, this_proxy.config.BuffSize)
-		//		for {
-		//			n, e := clientConn.Read(temp)
-		//			fmt.Println("temp:", n, e)
-		//			if e == io.EOF || n <= 0 {
-		//				break
-		//			}
-		//			proDialConn.Write(temp[:n])
-		//			//this_proxy.wLog(string(temp[:n]))
-		//		}
 		this.wLog("read clientConn->write proDialConn end")
 		completedChan <- 1
 	}()
@@ -260,20 +295,18 @@ func (this *ProxyServer) handleConnection(clientConn net.Conn, err error) {
 		completedChan <- 1
 	}()
 
-	defer this.DeferCallClose(proDialConn)
-
 	var result int = 0
 	for {
 		result += <-completedChan
 		this.wLog("<-completedChan=%d", result)
 		if result >= 2 {
-
 			close(completedChan)
 			this.wLog("closed all channel Connection end,linkingCount = %d", this.linkingCount)
 			break
 		}
 	}
 
+	//keep must be close chan
 	defer func(re int) {
 		if completedChan != nil {
 			if re < 2 {
@@ -319,6 +352,11 @@ func (this *ProxyServer) processParams(clientConn net.Conn, accerr error) bool {
 }
 
 func (this *ProxyServer) DeferCallClose(closer net.Conn) {
+	defer func() {
+		if p := recover(); p != nil {
+			this.wErrlog("##DeferCallClose Recover Info:##", p)
+		}
+	}()
 	if closer != nil {
 		reip := closer.RemoteAddr().String()
 		this.wLog("Close call=%s", reip)
