@@ -1,8 +1,8 @@
-# [golangProject]
+# [golangProject]  
 
-[Folder Description]
+[Folder Description]  
 
-[ConnProxy]
+[ConnProxy]  
 This is used go language to develope program of proxy server with support http and https. 
 
 1.can custom config to manager the proxy server.  
@@ -11,5 +11,5 @@ This is used go language to develope program of proxy server with support http a
 4.can auto switch reverse proxy server.  
 
 
-[GOBLog]
+[GOBLog]  
 This is log write for program runing.
