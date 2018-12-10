@@ -1,18 +1,33 @@
 package base
 
+import "fmt"
+
 type ProxyConfig struct {
-	Port string
+	Port           string `xml:"port,attr"`
+	PrintLog       bool   `xml:"printLog,attr"`
+	PrintIpSummary bool   `xml:"printIpSummary,attr"`
 
-	PassProxy string
-
-	PrintLog       bool
-	PrintIpSummary bool
+	ReverseProxys *ReverseProxys `xml:"ReverseProxys"`
 
 	AllowIpStr string
 
 	BuffSize int
 
 	AllowMaxConn int32
+	AllowMaxWait int32
 
 	Timeout int
+}
+
+type ReverseProxys struct {
+	Servers []Server `xml:"Server"`
+}
+
+func (this ReverseProxys) String() string {
+	return fmt.Sprintf("{Servers:%+v}", this.Servers)
+}
+
+type Server struct {
+	Addr  string `xml:",chardata"`
+	Score int    `xml:"score,attr"`
 }
