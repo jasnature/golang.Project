@@ -6,6 +6,7 @@ import (
 	"connProxy/base"
 	"fmt"
 	"io"
+	"math/rand"
 	"net"
 	"net/http"
 	"os"
@@ -27,9 +28,13 @@ func init() {
 type ProxyServer struct {
 	config base.ProxyConfig
 
-	linkingCount      int32
-	totalEnterCounter int64
-	curIpLink         map[string]int
+	linkingCount       int32
+	totalAcceptCounter int64
+	curIpLink          map[string]int
+
+	//s-ReversePorxy
+	currentReverseProxy string
+	//e-ReversePorxy
 
 	//start ip control
 	allowIpMap map[string]string
@@ -42,10 +47,13 @@ type ProxyServer struct {
 	outConnectionNotify chan int
 	//make buffer by allmaxconn
 	closerConnNotify chan string
+
+	//implement this method will call switch proxy
+	ProxyBalancePlot func(servers []base.Server) string
 }
 
 func (this *ProxyServer) initProxy() {
-	this.wLog("ProxyServer init..")
+	this.wLog("initProxy->")
 
 	tempConfig, esl := configMgr.LoadConfig()
 
@@ -87,8 +95,8 @@ func (this *ProxyServer) initProxy() {
 		go func() {
 
 			for {
-				time.Sleep(time.Second * 10)
-				fmt.Printf("Sum Process Count -> %d,Current Process Count-> %d,Current Link Address list-> %v \r\n", this.totalEnterCounter, this.linkingCount, this.curIpLink)
+				time.Sleep(time.Second * 6)
+				fmt.Printf("Sum Process Count -> %d,Current Process Count-> %d,Current Link Address list-> %v \r\n", this.totalAcceptCounter, this.linkingCount, this.curIpLink)
 
 			}
 
@@ -103,7 +111,6 @@ func (this *ProxyServer) initProxy() {
 		this.config.AllowMaxConn = 100
 	}
 	this.enterConnectionNotify = make(chan int, this.config.AllowMaxConn-1)
-	this.wLog("----%d", cap(this.enterConnectionNotify))
 
 	this.outConnectionNotify = make(chan int)
 
@@ -120,6 +127,29 @@ func (this *ProxyServer) initProxy() {
 			delete(this.curIpLink, removeIpPort)
 		}
 	}()
+
+	//reverse proxy config
+	if this.config.ReverseProxys != nil {
+		rp := this.config.ReverseProxys
+		if len(rp.Servers) > 1 {
+			//simple switch or implement method
+			go func() {
+				for {
+					if this.ProxyBalancePlot != nil {
+						this.currentReverseProxy = this.ProxyBalancePlot(rp.Servers)
+					} else {
+						protemp := rand.Intn(len(rp.Servers))
+						this.currentReverseProxy = rp.Servers[protemp].Addr
+					}
+					this.wLog("currentReverseProxy= %s", this.currentReverseProxy)
+					time.Sleep(time.Second * 3)
+				}
+			}()
+
+		} else {
+			this.currentReverseProxy = this.config.ReverseProxys.Servers[0].Addr
+		}
+	}
 }
 
 func (this *ProxyServer) wLog(format string, a ...interface{}) {
@@ -139,6 +169,7 @@ func (this *ProxyServer) wErrlog(a ...interface{}) {
 }
 
 func (this *ProxyServer) StartProxy() {
+	this.wLog("startProxy->")
 	this.initProxy()
 	addrStr := ":" + this.config.Port
 
@@ -151,6 +182,9 @@ func (this *ProxyServer) StartProxy() {
 	}
 	fmt.Printf("\r\n[Lister success info]: %+v \r\n\r\n", this.config)
 	go this.enterControl()
+
+	var currentWait *int32 = new(int32)
+	*currentWait = 0
 	for {
 
 		conn, accerr := link.Accept()
@@ -162,19 +196,28 @@ func (this *ProxyServer) StartProxy() {
 			continue
 		}
 
-		atomic.AddInt64(&this.totalEnterCounter, 1)
-		select {
-		case <-this.enterConnectionNotify:
-			atomic.AddInt32(&this.linkingCount, 1)
-			this.wLog("handleConnection: %s", conn.RemoteAddr().String())
-			go this.handleConnection(conn)
-		case <-time.After(timeout_dur / 2):
-			this.wLog("timeout conn: %s", conn.RemoteAddr().String())
-			func() {
-				defer this.DeferCallClose(conn)
-				defer atomic.AddInt32(&this.linkingCount, -1)
-			}()
+		atomic.AddInt64(&this.totalAcceptCounter, 1)
+
+		if this.config.AllowMaxWait > 0 && this.config.AllowMaxWait < *currentWait {
+			this.DeferCallClose(conn)
+			continue
 		}
+		atomic.AddInt32(currentWait, 1)
+		this.wLog("currentWait add=%d", *currentWait)
+		go func(cw *int32) {
+			select {
+			case <-this.enterConnectionNotify:
+				atomic.AddInt32(&this.linkingCount, 1)
+				go this.proxyConnectionHandle(conn)
+			case <-time.After(timeout_dur / 2):
+				this.wLog("timeout conn: %s", conn.RemoteAddr().String())
+				func() {
+					defer this.DeferCallClose(conn)
+				}()
+			}
+			atomic.AddInt32(cw, -1)
+			this.wLog("currentWait release=%d", *currentWait)
+		}(currentWait)
 
 	}
 
@@ -182,19 +225,20 @@ func (this *ProxyServer) StartProxy() {
 
 func (this *ProxyServer) enterControl() {
 	var lc int32
+	this.wLog("enterControl->")
 	for {
 		lc = atomic.LoadInt32(&this.linkingCount)
 		if lc < this.config.AllowMaxConn {
-			this.wLog("add enterControl")
 			this.enterConnectionNotify <- 1
 		} else {
-			this.wLog("wait enterControl")
+
 			<-this.outConnectionNotify
 		}
 	}
 }
 
-func (this *ProxyServer) handleConnection(clientConn net.Conn) {
+func (this *ProxyServer) proxyConnectionHandle(clientConn net.Conn) {
+	this.wLog("ConnectionHandle->: %s", clientConn.RemoteAddr().String())
 	var err error
 	defer func() {
 		this.wLog("release wait enterControl and linkingCount-1")
@@ -215,8 +259,8 @@ func (this *ProxyServer) handleConnection(clientConn net.Conn) {
 	var dialHost string
 	var requestBuild *http.Request = nil
 
-	if strings.TrimSpace(this.config.PassProxy) != "" {
-		dialHost = this.config.PassProxy
+	if strings.TrimSpace(this.currentReverseProxy) != "" {
+		dialHost = this.currentReverseProxy
 	} else {
 
 		bufread := bufio.NewReader(clientConn)
@@ -234,7 +278,7 @@ func (this *ProxyServer) handleConnection(clientConn net.Conn) {
 		}
 	}
 
-	this.wLog("Call DialByTimeout:%s", dialHost)
+	this.wLog("Call DialByTimeout by:%s", dialHost)
 	proDialConn, err := net.DialTimeout("tcp", dialHost, timeout_dur)
 
 	if proDialConn != nil {
@@ -248,7 +292,7 @@ func (this *ProxyServer) handleConnection(clientConn net.Conn) {
 
 	defer this.DeferCallClose(proDialConn)
 
-	if requestBuild != nil && strings.TrimSpace(this.config.PassProxy) == "" {
+	if requestBuild != nil && strings.TrimSpace(this.currentReverseProxy) == "" {
 		if requestBuild.Method == "CONNECT" {
 			clientConn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
 			//_, err := io.WriteString(clientConn, )
@@ -318,7 +362,7 @@ func (this *ProxyServer) handleConnection(clientConn net.Conn) {
 }
 
 func (this *ProxyServer) processParams(clientConn net.Conn, accerr error) bool {
-
+	this.wLog("processParams->")
 	reip_port := clientConn.RemoteAddr().String()
 
 	if reip_port == "" {
