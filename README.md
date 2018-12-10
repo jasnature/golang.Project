@@ -12,4 +12,4 @@ This is used go language to develope program of proxy server with support http a
 
 
 [GOBLog]  
-This is log write for program runing.
+This is log writer for program runing.
