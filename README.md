@@ -5,7 +5,7 @@
 [ConnProxy]  by golang program
 This is used go language to develope program of proxy server with support http and https. 
 
-===Property===
+===Property===   
 1.can custom config to manager the proxy server(timeout,conn num,wait num,filter ip,etc...).  
 2.can set direct proxy.  
 3.can set reverse proxy list.  
