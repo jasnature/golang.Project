@@ -3,9 +3,9 @@ package base
 import "fmt"
 
 type ProxyConfig struct {
-	Port           string `xml:"port,attr"`
-	PrintLog       bool   `xml:"printLog,attr"`
-	PrintIpSummary bool   `xml:"printIpSummary,attr"`
+	Port         string `xml:"port,attr"`
+	PrintLog     bool   `xml:"printLog,attr"`
+	PrintSummary bool   `xml:"printSummary,attr"`
 
 	ReverseProxys *ReverseProxys `xml:"ReverseProxys"`
 
@@ -30,4 +30,10 @@ func (this ReverseProxys) String() string {
 type Server struct {
 	Addr  string `xml:",chardata"`
 	Score int    `xml:"score,attr"`
+
+	//ignore field
+	//0 unnormal 1 normal
+	Status     int   `xml:"-"`
+	HandleSum  int64 `xml:"-"`
+	ErrorCount int   `xml:"-"`
 }
