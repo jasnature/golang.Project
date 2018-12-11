@@ -32,8 +32,11 @@ type ProxyServer struct {
 	totalAcceptCounter int64
 	curIpLink          map[string]int
 
+	wholeDelaySeconds int
+
 	//s-ReversePorxy
 	currentReverseProxy string
+	reverseProxyMap     map[string]*base.Server
 	//e-ReversePorxy
 
 	//start ip control
@@ -54,11 +57,11 @@ type ProxyServer struct {
 
 func (this *ProxyServer) initProxy() {
 	this.wLog("initProxy->")
-
+	this.wholeDelaySeconds = 6
 	tempConfig, esl := configMgr.LoadConfig()
 
 	if esl == nil {
-		fmt.Printf("\r\nLoad local xml config file[%s] init success!", configMgr.FileName)
+		fmt.Printf("\r\nLoad local xml config file[%s] init success!\r\n", configMgr.FileName)
 		this.config = tempConfig
 	} else {
 		fmt.Println("Cannot find local xml config, use default inner params init.")
@@ -90,14 +93,21 @@ func (this *ProxyServer) initProxy() {
 		}
 	}
 
-	if this.config.PrintIpSummary {
+	if this.config.PrintSummary {
 
 		go func() {
 
 			for {
-				time.Sleep(time.Second * 6)
-				fmt.Printf("Sum Process Count -> %d,Current Process Count-> %d,Current Link Address list-> %v \r\n", this.totalAcceptCounter, this.linkingCount, this.curIpLink)
+				time.Sleep(time.Second * time.Duration(this.wholeDelaySeconds))
+				fmt.Println("\r\n============Print Summary Start==============\r\n")
 
+				fmt.Printf("Sum Process Count -> %d,Current Process Count-> %d,Current Link Address list-> %v ", this.totalAcceptCounter, this.linkingCount, this.curIpLink)
+				if this.reverseProxyMap != nil {
+					for _, v := range this.reverseProxyMap {
+						fmt.Printf("\r\nreverseProxyStatus-> %+v", *v)
+					}
+				}
+				fmt.Println("\r\n\r\n============Print Summary End==============")
 			}
 
 		}()
@@ -131,23 +141,39 @@ func (this *ProxyServer) initProxy() {
 	//reverse proxy config
 	if this.config.ReverseProxys != nil {
 		rp := this.config.ReverseProxys
-		if len(rp.Servers) > 1 {
-			//simple switch or implement method
+		lenpp := len(rp.Servers)
+
+		if lenpp > 1 {
+
+			this.reverseProxyMap = make(map[string]*base.Server, lenpp)
+
+			for i := 0; i < lenpp; i++ {
+				t := rp.Servers[i]
+				//this.wLog("this.reverseProxyMap= %+v", &t)
+				this.reverseProxyMap[t.Addr] = &t
+			}
+
+			//this.wLog("this.reverseProxyMap= %+v", this.reverseProxyMap)
 			go func() {
+				//simple switch proxy or have any implement method
 				for {
 					if this.ProxyBalancePlot != nil {
 						this.currentReverseProxy = this.ProxyBalancePlot(rp.Servers)
 					} else {
-						protemp := rand.Intn(len(rp.Servers))
+						protemp := rand.Intn(lenpp)
+						//this.wLog("protemp= %d", protemp)
 						this.currentReverseProxy = rp.Servers[protemp].Addr
 					}
 					this.wLog("currentReverseProxy= %s", this.currentReverseProxy)
-					time.Sleep(time.Second * 3)
+
+					time.Sleep(time.Second * time.Duration(this.wholeDelaySeconds))
 				}
 			}()
 
-		} else {
+		} else if lenpp == 1 {
 			this.currentReverseProxy = this.config.ReverseProxys.Servers[0].Addr
+		} else {
+			this.wLog("Notice:not found Reverse Proxys config,enable direct proxy model.")
 		}
 	}
 }
@@ -198,40 +224,48 @@ func (this *ProxyServer) StartProxy() {
 
 		atomic.AddInt64(&this.totalAcceptCounter, 1)
 
+		//max wait conn control
 		if this.config.AllowMaxWait > 0 && this.config.AllowMaxWait < *currentWait {
 			this.DeferCallClose(conn)
+			this.wLog("overtake max wait,closed and continue.")
 			continue
 		}
+
 		atomic.AddInt32(currentWait, 1)
 		this.wLog("currentWait add=%d", *currentWait)
-		go func(cw *int32) {
+
+		//if have wait then auto handle thread timeout control
+		go func() {
 			select {
 			case <-this.enterConnectionNotify:
 				atomic.AddInt32(&this.linkingCount, 1)
-				go this.proxyConnectionHandle(conn)
-			case <-time.After(timeout_dur / 2):
+				this.proxyConnectionHandle(conn)
+			case <-time.After(timeout_dur):
 				this.wLog("timeout conn: %s", conn.RemoteAddr().String())
-				func() {
-					defer this.DeferCallClose(conn)
-				}()
+				defer this.DeferCallClose(conn)
 			}
-			atomic.AddInt32(cw, -1)
-			this.wLog("currentWait release=%d", *currentWait)
-		}(currentWait)
+
+			defer func() {
+				atomic.AddInt32(currentWait, -1)
+				this.wLog("currentWait release after=%d", *currentWait)
+			}()
+
+		}()
 
 	}
 
 }
 
+//max connection control by chan buffer
 func (this *ProxyServer) enterControl() {
 	var lc int32
 	this.wLog("enterControl->")
 	for {
 		lc = atomic.LoadInt32(&this.linkingCount)
 		if lc < this.config.AllowMaxConn {
+			//write chan buffer
 			this.enterConnectionNotify <- 1
 		} else {
-
 			<-this.outConnectionNotify
 		}
 	}
@@ -241,7 +275,7 @@ func (this *ProxyServer) proxyConnectionHandle(clientConn net.Conn) {
 	this.wLog("ConnectionHandle->: %s", clientConn.RemoteAddr().String())
 	var err error
 	defer func() {
-		this.wLog("release wait enterControl and linkingCount-1")
+		this.wLog("release one linkingCount:%d", this.linkingCount)
 		atomic.AddInt32(&this.linkingCount, -1)
 		this.outConnectionNotify <- 1
 		if p := recover(); p != nil {
@@ -259,8 +293,13 @@ func (this *ProxyServer) proxyConnectionHandle(clientConn net.Conn) {
 	var dialHost string
 	var requestBuild *http.Request = nil
 
-	if strings.TrimSpace(this.currentReverseProxy) != "" {
+	var useReverseProxys bool = strings.TrimSpace(this.currentReverseProxy) != ""
+
+	if useReverseProxys {
 		dialHost = this.currentReverseProxy
+		if v, ok := this.reverseProxyMap[dialHost]; ok {
+			v.HandleSum++
+		}
 	} else {
 
 		bufread := bufio.NewReader(clientConn)
@@ -287,12 +326,18 @@ func (this *ProxyServer) proxyConnectionHandle(clientConn net.Conn) {
 
 	if err != nil {
 		this.wErrlog("proConn", err.Error())
+		if useReverseProxys {
+			if v, ok := this.reverseProxyMap[dialHost]; ok {
+				v.ErrorCount++
+			}
+		}
 		return
 	}
 
 	defer this.DeferCallClose(proDialConn)
 
-	if requestBuild != nil && strings.TrimSpace(this.currentReverseProxy) == "" {
+	//direct dial url
+	if requestBuild != nil && !useReverseProxys {
 		if requestBuild.Method == "CONNECT" {
 			clientConn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
 			//_, err := io.WriteString(clientConn, )
