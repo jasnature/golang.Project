@@ -201,13 +201,15 @@ func (this *ProxyServer) StartProxy() {
 
 	link, err := net.Listen("tcp", addrStr)
 
+	if err != nil {
+		this.wErrlog("Port has been used.", err.Error())
+		return
+	}
+
+	fmt.Printf("\r\n[Lister success info]: %+v \r\n\r\n", this.config)
 	defer link.Close()
 
-	if err != nil {
-		this.wErrlog("Listen link", err.Error())
-	}
-	fmt.Printf("\r\n[Lister success info]: %+v \r\n\r\n", this.config)
-	go this.enterControl()
+	go this.enterMaxConnControl()
 
 	var currentWait *int32 = new(int32)
 	*currentWait = 0
@@ -256,7 +258,7 @@ func (this *ProxyServer) StartProxy() {
 }
 
 //max connection control by chan buffer
-func (this *ProxyServer) enterControl() {
+func (this *ProxyServer) enterMaxConnControl() {
 	var i int32
 	for i = 0; i < this.config.AllowMaxConn; i++ {
 		this.enterConnectionNotify <- 1
