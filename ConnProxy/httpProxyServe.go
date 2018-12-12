@@ -44,9 +44,9 @@ type ProxyServer struct {
 	allowAllIp bool
 	//end ip control
 
-	//make buffer by allmaxconn
+	//make in buffer by allmaxconn
 	enterConnectionNotify chan int
-	// not buffer
+	//make out buffer by allmaxconn
 	outConnectionNotify chan int
 	//make buffer by allmaxconn
 	closerConnNotify chan string
@@ -120,9 +120,9 @@ func (this *ProxyServer) initProxy() {
 	if this.config.AllowMaxConn <= 0 {
 		this.config.AllowMaxConn = 100
 	}
-	this.enterConnectionNotify = make(chan int, this.config.AllowMaxConn-1)
+	this.enterConnectionNotify = make(chan int, this.config.AllowMaxConn)
 
-	this.outConnectionNotify = make(chan int)
+	this.outConnectionNotify = make(chan int, this.config.AllowMaxConn)
 
 	if this.config.Timeout < 2 {
 		this.config.Timeout = 10
@@ -181,7 +181,7 @@ func (this *ProxyServer) initProxy() {
 func (this *ProxyServer) wLog(format string, a ...interface{}) {
 	if this.config.PrintLog {
 		if a != nil {
-			fmt.Fprintf(os.Stdout, "\r\n"+format+"\r\n", a)
+			fmt.Fprintf(os.Stdout, "\r\n"+format+"\r\n", a...)
 		} else {
 			fmt.Fprintln(os.Stdout, format)
 		}
@@ -238,18 +238,17 @@ func (this *ProxyServer) StartProxy() {
 		go func() {
 			select {
 			case <-this.enterConnectionNotify:
+				atomic.AddInt32(currentWait, -1)
 				atomic.AddInt32(&this.linkingCount, 1)
 				this.proxyConnectionHandle(conn)
 			case <-time.After(timeout_dur):
-				this.wLog("timeout conn: %s", conn.RemoteAddr().String())
+				this.wLog("wait conn timeout: %s", conn.RemoteAddr().String())
+				defer func() {
+					atomic.AddInt32(currentWait, -1)
+					this.wLog("currentWait release after=%d", *currentWait)
+				}()
 				defer this.DeferCallClose(conn)
 			}
-
-			defer func() {
-				atomic.AddInt32(currentWait, -1)
-				this.wLog("currentWait release after=%d", *currentWait)
-			}()
-
 		}()
 
 	}
@@ -258,16 +257,16 @@ func (this *ProxyServer) StartProxy() {
 
 //max connection control by chan buffer
 func (this *ProxyServer) enterControl() {
-	var lc int32
-	this.wLog("enterControl->")
+	var i int32
+	for i = 0; i < this.config.AllowMaxConn; i++ {
+		this.enterConnectionNotify <- 1
+	}
+	this.wLog("enter max connection control->init:%d", i)
 	for {
-		lc = atomic.LoadInt32(&this.linkingCount)
-		if lc < this.config.AllowMaxConn {
-			//write chan buffer
-			this.enterConnectionNotify <- 1
-		} else {
-			<-this.outConnectionNotify
-		}
+		this.wLog("wait -> outConnectionNotify...")
+		<-this.outConnectionNotify
+		this.enterConnectionNotify <- 1
+		this.wLog("readd -> enterConnectionNotify")
 	}
 }
 
@@ -275,8 +274,8 @@ func (this *ProxyServer) proxyConnectionHandle(clientConn net.Conn) {
 	this.wLog("ConnectionHandle->: %s", clientConn.RemoteAddr().String())
 	var err error
 	defer func() {
-		this.wLog("release one linkingCount:%d", this.linkingCount)
 		atomic.AddInt32(&this.linkingCount, -1)
+		this.wLog("release one linkingCount:%d", this.linkingCount)
 		this.outConnectionNotify <- 1
 		if p := recover(); p != nil {
 			this.wErrlog("##Recover Info:##", p)
@@ -308,7 +307,7 @@ func (this *ProxyServer) proxyConnectionHandle(clientConn net.Conn) {
 		if err != nil {
 			return
 		}
-		this.wLog("Request Build,host= %s,URL= %s", requestBuild.Host, requestBuild.URL)
+		this.wLog("Request Build,host= %s", requestBuild.Host)
 
 		dialHost = requestBuild.Host
 
@@ -317,7 +316,7 @@ func (this *ProxyServer) proxyConnectionHandle(clientConn net.Conn) {
 		}
 	}
 
-	this.wLog("Call DialByTimeout by:%s", dialHost)
+	this.wLog("Call DialByTimeout by:%s for clientip:%s", dialHost, clientConn.RemoteAddr().String())
 	proDialConn, err := net.DialTimeout("tcp", dialHost, timeout_dur)
 
 	if proDialConn != nil {
@@ -325,7 +324,7 @@ func (this *ProxyServer) proxyConnectionHandle(clientConn net.Conn) {
 	}
 
 	if err != nil {
-		this.wErrlog("proConn", err.Error())
+		this.wErrlog("ClientIp=" + clientConn.RemoteAddr().String() + "  DialError:" + err.Error())
 		if useReverseProxys {
 			if v, ok := this.reverseProxyMap[dialHost]; ok {
 				v.ErrorCount++
@@ -341,14 +340,14 @@ func (this *ProxyServer) proxyConnectionHandle(clientConn net.Conn) {
 		if requestBuild.Method == "CONNECT" {
 			clientConn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
 			//_, err := io.WriteString(clientConn, )
-			this.wLog("WriteString:%s", "HTTP/1.1 200 Connection Established\r\n")
+			this.wLog("clientip=%s,WriteString:%s,", clientConn.RemoteAddr().String(), "Connection Established\r\n")
 			if err != nil {
 				this.wLog("WriteString Error")
 				return
 			}
 		} else {
 			requestBuild.Write(proDialConn)
-			this.wLog("WriteRequestHeaders")
+			this.wLog("WriteRequestHeaders,clientip=%s", clientConn.RemoteAddr().String())
 		}
 	}
 
@@ -360,7 +359,7 @@ func (this *ProxyServer) proxyConnectionHandle(clientConn net.Conn) {
 		var buf []byte = make([]byte, this.config.BuffSize)
 		io.CopyBuffer(proDialConn, clientConn, buf)
 
-		this.wLog("read clientConn->write proDialConn end")
+		this.wLog("read clientConn->write proDialConn end,clientIP:%s", clientConn.RemoteAddr().String())
 		completedChan <- 1
 	}()
 
@@ -380,7 +379,7 @@ func (this *ProxyServer) proxyConnectionHandle(clientConn net.Conn) {
 		//			clientConn.Write(temp[:n])
 		//		}
 
-		this.wLog("read proDialConn->write clientConn end")
+		this.wLog("read proDialConn->write clientConn end,clientIP:%s", clientConn.RemoteAddr().String())
 		completedChan <- 1
 	}()
 
@@ -390,7 +389,7 @@ func (this *ProxyServer) proxyConnectionHandle(clientConn net.Conn) {
 		this.wLog("<-completedChan=%d", result)
 		if result >= 2 {
 			close(completedChan)
-			this.wLog("closed all channel Connection end,linkingCount = %d", this.linkingCount)
+			this.wLog("closed all channel Connection end,clientIP=%s", clientConn.RemoteAddr().String())
 			break
 		}
 	}
@@ -399,8 +398,8 @@ func (this *ProxyServer) proxyConnectionHandle(clientConn net.Conn) {
 	defer func(re int) {
 		if completedChan != nil {
 			if re < 2 {
-				this.wLog("if not closed then again to close Chan. linkingCount = %d", this.linkingCount)
 				close(completedChan)
+				this.wLog("if not closed then again to close Chan,clientIP=%s", clientConn.RemoteAddr().String())
 			}
 		}
 	}(result)
