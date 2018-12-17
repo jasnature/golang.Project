@@ -195,11 +195,26 @@ func (this *ProxyServer) wErrlog(a ...interface{}) {
 }
 
 func (this *ProxyServer) StartProxy() {
-	this.wLog("startProxy->")
+	var (
+		link net.Listener
+		err  error
+	)
+
+	defer func() {
+		link.Close()
+		if p := recover(); p != nil {
+			this.wErrlog("##Recover StartProxy Error:##", p)
+			time.Sleep(time.Second * 5)
+			this.wLog("Find Server exception Restart call StartProxy->")
+			this.StartProxy()
+		}
+	}()
+
+	this.wLog("StartProxy->")
 	this.initProxy()
 	addrStr := ":" + this.config.Port
 
-	link, err := net.Listen("tcp", addrStr)
+	link, err = net.Listen("tcp", addrStr)
 
 	if err != nil {
 		this.wErrlog("Port has been used.", err.Error())
@@ -207,7 +222,6 @@ func (this *ProxyServer) StartProxy() {
 	}
 
 	fmt.Printf("\r\n[Lister success info]: %+v \r\n\r\n", this.config)
-	defer link.Close()
 
 	go this.enterMaxConnControl()
 
@@ -280,6 +294,9 @@ func (this *ProxyServer) proxyConnectionHandle(clientConn net.Conn) {
 		this.wLog("release one linkingCount:%d", this.linkingCount)
 		this.outConnectionNotify <- 1
 		if p := recover(); p != nil {
+			if clientConn != nil {
+				this.DeferCallClose(clientConn)
+			}
 			this.wErrlog("##Recover Info:##", p)
 			errbuf := make([]byte, 1<<20)
 			ernum := runtime.Stack(errbuf, false)
