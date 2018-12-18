@@ -101,7 +101,8 @@ func (this *ProxyServer) initProxy() {
 				time.Sleep(time.Second * time.Duration(this.wholeDelaySeconds))
 				fmt.Println("\r\n============Print Summary Start==============\r\n")
 
-				fmt.Printf("Sum Process Count -> %d,Current Process Count-> %d,Current Link Address list-> %v ", this.totalAcceptCounter, this.linkingCount, this.curIpLink)
+				fmt.Printf("Sum Process Sum:-> %d ,Current Process Count:-> %d ,Current Link Address list:-> %v ", this.totalAcceptCounter, this.linkingCount, this.curIpLink)
+				fmt.Printf("\r\nAvailable Conn Count:-> %d", len(this.enterConnectionNotify))
 				if this.reverseProxyMap != nil {
 					for _, v := range this.reverseProxyMap {
 						fmt.Printf("\r\nreverseProxyStatus-> %+v", *v)
