@@ -1,4 +1,4 @@
-# [Some golang Project]  [一些 Go lang 语言开发的项目]  
+# [Some golang Projects]  [一些 Go lang 语言开发的项目]  
 
 ## [Folder Description]  [项目文件介绍]  
 
