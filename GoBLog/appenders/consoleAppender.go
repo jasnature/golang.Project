@@ -1,2 +1,32 @@
 // consoleAppender
 package appenders
+
+import (
+	"GoBLog/base"
+	"GoBLog/formatters"
+	"fmt"
+)
+
+type ConsoleAppender struct {
+	Appender
+	formatter formatters.Formatter
+}
+
+func NewConsoleAppender() *ConsoleAppender {
+	this := &ConsoleAppender{
+		formatter: formatters.DefaultFormatter(),
+	}
+	return this
+}
+
+func (this *ConsoleAppender) Write(level base.LogLevel, message string, args ...interface{}) {
+	fmt.Println(this.Formatter().Format(level, message, args...))
+}
+
+func (this *ConsoleAppender) Formatter() formatters.Formatter {
+	return this.formatter
+}
+
+func (this *ConsoleAppender) SetFormatter(formatter formatters.Formatter) {
+	this.formatter = formatter
+}
