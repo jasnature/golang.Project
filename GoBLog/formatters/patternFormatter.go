@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"runtime"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -27,7 +28,7 @@ func NewPatternFormatter(pattern string) *PatternFormatter {
 }
 
 //%S - Stack info print
-//%d - The current date/time, using time.Now().String()
+//%d or %d{golang Format string,e.g:2006-01-02 15:04:05.000} - The current date-time, using time.Now().Format("DefaultTimeLayout Field ")
 //%F - The filename the log statement is in
 //%l - The location of the log statement, e.g. file path : 12
 //%L - The line number the log statement is on
@@ -41,13 +42,13 @@ func (this *PatternFormatter) Format(level base.LogLevel, message string, args .
 	_, file, line, ok := runtime.Caller(2)
 
 	if !ok {
-		file = "not found"
+		file = "not found file."
 		line = 0
 	}
 	msg := this.reg.ReplaceAllStringFunc(this.Pattern, func(m string) string {
 		//fmt.Println(m)
 		parts := this.reg.FindStringSubmatch(m)
-		//fmt.Println(parts)
+		//fmt.Printf("parts=%+v \n", parts)
 		switch parts[1] {
 		// FIXME
 		// %c and %C should probably return the logger name, not the package
@@ -57,6 +58,9 @@ func (this *PatternFormatter) Format(level base.LogLevel, message string, args .
 		//		case "C":
 		//			return caller.pkg
 		case "d":
+			if len(parts) == 3 && strings.TrimSpace(parts[2]) != "" {
+				return time.Now().Format(parts[2])
+			}
 			return time.Now().Format(this.DefaultTimeLayout)
 		case "F":
 			return file
