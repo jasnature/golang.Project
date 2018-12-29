@@ -110,5 +110,6 @@ func (u *Util) TraceMethodInfo(funcname string, data ...interface{}) func() {
 
 func (u *Util) NowTimeStr() string {
 	nowTime := time.Now().String()
-	return nowTime[:19]
+	//return nowTime[:19]
+	return nowTime[:23]
 }
