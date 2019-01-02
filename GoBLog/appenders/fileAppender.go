@@ -3,6 +3,7 @@ package appenders
 import (
 	"GoBLog/base"
 	"GoBLog/formatters"
+	"sync"
 
 	//"fmt"
 	"os"
@@ -14,37 +15,46 @@ type FileAppender struct {
 
 	MaxFileSize    int
 	MaxBackupIndex int
+	fileName       string
+	appendModel    bool
+	bufferSize     int
 
-	currentWFileName string
-	fileStream       *os.File
-	appendModel      bool
-	writeSycnChan    chan string
-
-	bufferSize int
 	//Has been write bytes
 	writtenBytes int
-
-	buffer []byte
+	buffer       []byte
+	fileStream   *os.File
+	mu           sync.Mutex
 }
 
-func NewFileAppender(fileName string, appendModel bool, bufferSize int) *FileAppender {
+//filepath: filename or full path
+//appendModel append log to file
+func NewFileAppender(filepath string, appendModel bool, bufferSize int) (obj *FileAppender, err error) {
+	err = nil
 
-	this := &FileAppender{
+	obj = &FileAppender{
 		formatter:      formatters.DefaultFormatter(),
 		MaxFileSize:    50,
 		MaxBackupIndex: 50,
+		fileName:       filepath,
 		appendModel:    appendModel,
-		writeSycnChan:  make(chan string, 100),
 		bufferSize:     bufferSize,
+		writtenBytes:   0,
 	}
+
+	err = obj.ResetFilename(filepath)
+	if err != nil {
+		obj = nil
+		return nil, err
+	}
+
 	if bufferSize <= 0 {
 		//128KB
 		bufferSize = 1024 * 128
 	}
 
-	this.buffer = make([]byte, this.bufferSize)
+	obj.buffer = make([]byte, obj.bufferSize)
 
-	return this
+	return obj, err
 }
 
 func (this *FileAppender) Write(level base.LogLevel, message string, args ...interface{}) {
@@ -52,21 +62,18 @@ func (this *FileAppender) Write(level base.LogLevel, message string, args ...int
 
 }
 
-func (this *FileAppender) closeFile() {
-	if this.fileStream != nil {
-		this.fileStream.Close()
-		this.fileStream = nil
+func (this *FileAppender) ResetFilename(filepath string) error {
+	defer this.mu.Unlock()
+	this.mu.Lock()
+	if this.fileName != filepath || this.fileStream == nil {
+		err := this.closeFileStream()
+		if err == nil {
+			this.fileName = filepath
+			err = this.openFileStream()
+		}
+		return err
 	}
-}
-func (this *FileAppender) openFile() error {
-	mode := os.O_WRONLY | os.O_APPEND | os.O_CREATE
-	if !this.appendModel {
-		mode = os.O_WRONLY | os.O_CREATE
-	}
-	//4-r 2-w 1-x linux
-	f, err := os.OpenFile(this.currentWFileName, mode, 0666)
-	this.fileStream = f
-	return err
+	return nil
 }
 
 func (this *FileAppender) Formatter() formatters.Formatter {
@@ -75,4 +82,24 @@ func (this *FileAppender) Formatter() formatters.Formatter {
 
 func (this *FileAppender) SetFormatter(formatter formatters.Formatter) {
 	this.formatter = formatter
+}
+
+func (this *FileAppender) closeFileStream() (err error) {
+	if this.fileStream != nil {
+		err = this.fileStream.Close()
+		if err == nil {
+			this.fileStream = nil
+		}
+	}
+	return err
+}
+func (this *FileAppender) openFileStream() error {
+	mode := os.O_WRONLY | os.O_APPEND | os.O_CREATE
+	if !this.appendModel {
+		mode = os.O_WRONLY | os.O_CREATE
+	}
+	//4-r 2-w 1-x linux
+	fs, err := os.OpenFile(this.fileName, mode, 0666)
+	this.fileStream = fs
+	return err
 }
