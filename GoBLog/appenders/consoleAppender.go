@@ -9,6 +9,7 @@ import (
 
 type ConsoleAppender struct {
 	Appender
+	formatters.FormatterManager
 	formatter formatters.Formatter
 }
 
@@ -19,7 +20,7 @@ func NewConsoleAppender() *ConsoleAppender {
 	return this
 }
 
-func (this *ConsoleAppender) Write(level base.LogLevel, message string, args ...interface{}) {
+func (this *ConsoleAppender) WriteString(level base.LogLevel, message string, args ...interface{}) {
 	fmt.Println(this.Formatter().Format(level, message, args...))
 }
 
