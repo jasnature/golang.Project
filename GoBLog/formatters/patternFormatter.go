@@ -20,8 +20,15 @@ type PatternFormatter struct {
 
 //New Pattern format struct,if not set then use default pattern
 func NewPatternFormatter(pattern string) *PatternFormatter {
+	pattern = strings.TrimRight(pattern, " ")
+	//fmt.Printf("[old]=%s ,%v", pattern, strings.HasSuffix(pattern, "\n"))
+	if !strings.HasSuffix(pattern, "\n") && !strings.HasSuffix(pattern, "%n") {
+		pattern += " \n"
+		//fmt.Printf(" [new]=%s", pattern)
+	}
+
 	return &PatternFormatter{
-		Pattern:           pattern,
+		Pattern:           string(pattern),
 		DefaultTimeLayout: "2006-01-02 15:04:05.000",
 		reg:               regexp.MustCompile("%(\\w|%)(?:{([^}]+)})?"),
 	}
