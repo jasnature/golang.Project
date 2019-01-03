@@ -6,11 +6,8 @@ package appenders
 
 import (
 	"GoBLog/base"
-	"GoBLog/formatters"
 )
 
 type Appender interface {
-	Write(level levels.LogLevel, message string, args ...interface{})
-	Layout() layout.Layout
-	SetLayout(layout.Layout)
+	WriteString(level base.LogLevel, message string, args ...interface{})
 }
