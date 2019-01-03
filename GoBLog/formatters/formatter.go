@@ -13,11 +13,17 @@ type Formatter interface {
 	Format(level base.LogLevel, message string, args ...interface{}) string
 }
 
+type FormatterManager interface {
+	Formatter() Formatter
+	SetFormatter(Formatter)
+}
+
 //Return a default format
 func DefaultFormatter() Formatter {
 	return NewSimpleFormatter()
 }
 
+//return a standard Pattern formatter
 func DefaultPatternFormatter() Formatter {
-	return NewPatternFormatter("[%p] %d %l %n LogInfo-> %m")
+	return NewPatternFormatter("[%p] %d %l %n %m %n")
 }
