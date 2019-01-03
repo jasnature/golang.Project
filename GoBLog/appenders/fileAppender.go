@@ -11,11 +11,12 @@ import (
 
 type FileAppender struct {
 	Appender
+	formatters.FormatterManager
 	formatter formatters.Formatter
 
 	MaxFileSize    int
 	MaxBackupIndex int
-	fileName       string
+	fileFullPath   string
 	appendModel    bool
 	bufferSize     int
 
@@ -27,15 +28,15 @@ type FileAppender struct {
 }
 
 //filepath: filename or full path
-//appendModel append log to file
+//appendModel false: if set false with reopen file then clear content and write log,if have not close file stream then append log. true: always append log to file
 func NewFileAppender(filepath string, appendModel bool, bufferSize int) (obj *FileAppender, err error) {
 	err = nil
 
 	obj = &FileAppender{
-		formatter:      formatters.DefaultFormatter(),
+		formatter:      formatters.DefaultPatternFormatter(),
 		MaxFileSize:    50,
 		MaxBackupIndex: 50,
-		fileName:       filepath,
+		fileFullPath:   filepath,
 		appendModel:    appendModel,
 		bufferSize:     bufferSize,
 		writtenBytes:   0,
@@ -57,18 +58,48 @@ func NewFileAppender(filepath string, appendModel bool, bufferSize int) (obj *Fi
 	return obj, err
 }
 
-func (this *FileAppender) Write(level base.LogLevel, message string, args ...interface{}) {
+func (this *FileAppender) WriteString(level base.LogLevel, message string, args ...interface{}) {
 	//fmt.Println(this.Formatter().Format(level, message, args...))
+	m := this.Formatter().Format(level, message, args...)
 
+	this.fileStream.Write([]byte(m))
+
+	//this.writeMutex.Lock()
+	//	this.bytesWritten += int64(len(m))
+	//	if this.bytesWritten >= this.MaxFileSize {
+	//		this.bytesWritten = 0
+	//		this.rotateFile()
+	//	}
+
+	//	this.writeMutex.Unlock()
 }
+
+//func (this *FileAppender) rotateFile() {
+//	this.closeFile()
+
+//	lastFile := this.filename + "." + strconv.Itoa(this.MaxBackupIndex)
+//	if _, err := os.Stat(lastFile); err == nil {
+//		os.Remove(lastFile)
+//	}
+
+//	for n := this.MaxBackupIndex; n > 0; n-- {
+//		f1 := this.filename + "." + strconv.Itoa(n)
+//		f2 := this.filename + "." + strconv.Itoa(n+1)
+//		os.Rename(f1, f2)
+//	}
+
+//	os.Rename(this.filename, this.filename+".1")
+
+//	this.openFile()
+//}
 
 func (this *FileAppender) ResetFilename(filepath string) error {
 	defer this.mu.Unlock()
 	this.mu.Lock()
-	if this.fileName != filepath || this.fileStream == nil {
+	if this.fileFullPath != filepath || this.fileStream == nil {
 		err := this.closeFileStream()
 		if err == nil {
-			this.fileName = filepath
+			this.fileFullPath = filepath
 			err = this.openFileStream()
 		}
 		return err
@@ -99,7 +130,7 @@ func (this *FileAppender) openFileStream() error {
 		mode = os.O_WRONLY | os.O_CREATE
 	}
 	//4-r 2-w 1-x linux
-	fs, err := os.OpenFile(this.fileName, mode, 0666)
+	fs, err := os.OpenFile(this.fileFullPath, mode, 0666)
 	this.fileStream = fs
 	return err
 }
