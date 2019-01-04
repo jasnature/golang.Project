@@ -3,75 +3,95 @@ package appenders
 import (
 	"GoBLog/base"
 	"GoBLog/formatters"
-	"sync"
-
-	//"fmt"
+	"bufio"
+	"fmt"
 	"os"
+	"sync"
+	"sync/atomic"
 )
 
+//standard txt log file of FileAppender,if hope use other type log,please used json jsonFileAppender/xmlFileAppender
 type FileAppender struct {
 	Appender
 	formatters.FormatterManager
 	formatter formatters.Formatter
 
-	MaxFileSize    int
-	MaxBackupIndex int
+	maxFileSize    int32
+	maxBackupIndex int
 	fileFullPath   string
 	appendModel    bool
-	bufferSize     int
 
 	//Has been write bytes
-	writtenBytes int
-	buffer       []byte
+	writtenBytes int32
+	bufferIO     *bufio.Writer
 	fileStream   *os.File
 	mu           sync.Mutex
 }
 
 //filepath: filename or full path
 //appendModel false: if set false with reopen file then clear content and write log,if have not close file stream then append log. true: always append log to file
-func NewFileAppender(filepath string, appendModel bool, bufferSize int) (obj *FileAppender, err error) {
-	err = nil
+func NewFileAppender(filepathAndName string, appendModel bool) (obj *FileAppender, err error) {
+	return NewFileCustomAppender(filepathAndName, appendModel, base.Byte*300, base.KB*2, 2)
+	//return NewFileCustomAppender(filepathAndName, appendModel, base.KB*64, base.MB*6, 2)
+}
 
+func NewFileCustomAppender(filepathAndName string, appendModel bool, bufferSize base.ByteSize, maxfilesize base.ByteSize, maxIncreaseNameIndex int) (obj *FileAppender, err error) {
+	err = nil
+	if maxfilesize < 50 {
+		maxfilesize = base.MB * 3
+	}
+	if maxIncreaseNameIndex <= 0 {
+		maxIncreaseNameIndex = 20
+	}
+	if bufferSize <= 0 {
+		//128KB
+		bufferSize = 1024 * 128
+	}
 	obj = &FileAppender{
 		formatter:      formatters.DefaultPatternFormatter(),
-		MaxFileSize:    50,
-		MaxBackupIndex: 50,
-		fileFullPath:   filepath,
+		maxFileSize:    int32(maxfilesize),
+		maxBackupIndex: maxIncreaseNameIndex,
+		fileFullPath:   filepathAndName,
 		appendModel:    appendModel,
-		bufferSize:     bufferSize,
 		writtenBytes:   0,
 	}
 
-	err = obj.ResetFilename(filepath)
+	err = obj.ResetFilename(filepathAndName)
 	if err != nil {
 		obj = nil
 		return nil, err
 	}
 
-	if bufferSize <= 0 {
-		//128KB
-		bufferSize = 1024 * 128
-	}
-
-	obj.buffer = make([]byte, obj.bufferSize)
+	obj.bufferIO = bufio.NewWriterSize(obj.fileStream, int(bufferSize))
 
 	return obj, err
 }
 
 func (this *FileAppender) WriteString(level base.LogLevel, message string, args ...interface{}) {
-	//fmt.Println(this.Formatter().Format(level, message, args...))
-	m := this.Formatter().Format(level, message, args...)
+	msg := this.Formatter().Format(level, message, args...)
 
-	this.fileStream.Write([]byte(m))
+	//len([]rune(msg)) this len is count num
+	realBytes := []byte(msg)
 
-	//this.writeMutex.Lock()
-	//	this.bytesWritten += int64(len(m))
+	var lencount int32 = int32(len(realBytes))
+	atomic.AddInt32(&this.writtenBytes, lencount)
+
+	fmt.Printf("WriteString Print: w= %d t=%d m=%d \r\n", len(realBytes), this.writtenBytes, this.maxFileSize)
+
+	if this.writtenBytes < this.maxFileSize {
+		fmt.Println("enter write")
+		this.bufferIO.WriteString(msg)
+	} else {
+		fmt.Println("not write")
+		this.bufferIO.Flush()
+	}
+
+	//	this.bytesWritten += int64(len(msg))
 	//	if this.bytesWritten >= this.MaxFileSize {
 	//		this.bytesWritten = 0
 	//		this.rotateFile()
 	//	}
 
-	//	this.writeMutex.Unlock()
 }
 
 //func (this *FileAppender) rotateFile() {
@@ -129,6 +149,7 @@ func (this *FileAppender) openFileStream() error {
 	if !this.appendModel {
 		mode = os.O_WRONLY | os.O_CREATE
 	}
+
 	//4-r 2-w 1-x linux
 	fs, err := os.OpenFile(this.fileFullPath, mode, 0666)
 	this.fileStream = fs
