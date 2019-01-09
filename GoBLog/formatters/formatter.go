@@ -18,11 +18,6 @@ type FormatterManager interface {
 	SetFormatter(Formatter)
 }
 
-//Return a default format
-func DefaultFormatter() Formatter {
-	return NewSimpleFormatter()
-}
-
 //return a standard Pattern formatter
 func DefaultPatternFormatter() Formatter {
 	return NewPatternFormatter("[%p] %d %l %n %m %n")
