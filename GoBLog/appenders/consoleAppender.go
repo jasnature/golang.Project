@@ -15,7 +15,7 @@ type ConsoleAppender struct {
 
 func NewConsoleAppender() *ConsoleAppender {
 	this := &ConsoleAppender{
-		formatter: formatters.DefaultFormatter(),
+		formatter: formatters.NewSimpleFormatter(),
 	}
 	return this
 }
