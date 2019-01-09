@@ -12,9 +12,11 @@ import (
 	"sync/atomic"
 )
 
-//standard txt log file of FileAppender,if hope use other type log,please used json jsonFileAppender/xmlFileAppender
+//standard txt log roll file of FileAppender,if hope use other type log,please used json jsonFileAppender/xmlFileAppender
+//if set maxBackupDayIndex then auto roll flush and backup file,first index=1 it is latest backup,max index it is old backup.
 type FileAppender struct {
 	Appender
+	base.IDispose
 	formatters.FormatterManager
 	formatter formatters.Formatter
 
@@ -41,8 +43,8 @@ type FileAppender struct {
 //params see of NewFileCustomAppender function
 func NewFileAppender(filepathAndName string, appendModel bool) (obj *FileAppender, err error) {
 	//fmt.Println("NewFileAppender")
-	return NewFileCustomAppender(filepathAndName, appendModel, base.Byte*300, base.Byte*700, 3)
-	//return NewFileCustomAppender(filepathAndName, appendModel, base.KB*64, base.MB*6, 10)
+	//return NewFileCustomAppender(filepathAndName, appendModel, base.Byte*300, base.Byte*700, 3)
+	return NewFileCustomAppender(filepathAndName, appendModel, base.KB*64, base.MB*6, 10)
 }
 
 //filepathAndName: filename or full path,if set "" then auto filename base on date name.
@@ -50,14 +52,14 @@ func NewFileAppender(filepathAndName string, appendModel bool) (obj *FileAppende
 //bufferSize: write memory size if full then flush to disk.
 //maxfilesize: sigle file max size.
 //maxbakIndex: if > maxfilesize then auto backup to other name by day.
-func NewFileCustomAppender(filepathAndName string, appendModel bool, bufferSize base.ByteSize, maxfilesize base.ByteSize, maxbakIndexByDay int) (obj *FileAppender, err error) {
+func NewFileCustomAppender(filepathAndName string, appendModel bool, bufferSize base.ByteSize, maxfilesize base.ByteSize, maxbakRollIndexByDay int) (obj *FileAppender, err error) {
 	//fmt.Println("NewFileCustomAppender")
 	err = nil
 	if maxfilesize < 50 {
 		maxfilesize = base.MB * 3
 	}
-	if maxbakIndexByDay <= 0 {
-		maxbakIndexByDay = 20
+	if maxbakRollIndexByDay <= 0 {
+		maxbakRollIndexByDay = 20
 	}
 	if bufferSize <= 0 {
 		//128KB
@@ -66,7 +68,7 @@ func NewFileCustomAppender(filepathAndName string, appendModel bool, bufferSize 
 	obj = &FileAppender{
 		formatter:         formatters.DefaultPatternFormatter(),
 		maxFileSize:       int32(maxfilesize),
-		maxBackupDayIndex: maxbakIndexByDay,
+		maxBackupDayIndex: maxbakRollIndexByDay,
 		currentfilePath:   filepathAndName,
 		appendModel:       appendModel,
 		writtenBytes:      0,
@@ -92,9 +94,10 @@ func NewFileCustomAppender(filepathAndName string, appendModel bool, bufferSize 
 	return obj, err
 }
 
+//write msg no lock model but rotateFile has lock,goBLogFactory will be use channel to control queue of write msg function.
 func (this *FileAppender) WriteString(level base.LogLevel, message string, args ...interface{}) {
 	msg := this.Formatter().Format(level, message, args...)
-
+	//fmt.Println(msg)
 	//len([]rune(msg)) this len is count num
 	realBytes := []byte(msg)
 
@@ -103,13 +106,14 @@ func (this *FileAppender) WriteString(level base.LogLevel, message string, args 
 
 	fmt.Printf("WriteString Print: current=%d total=%d max=%d \r\n", len(realBytes), this.writtenBytes, this.maxFileSize)
 
-	if this.writtenBytes < this.maxFileSize {
-		fmt.Println("->write file:" + this.currentfilePath)
-		this.bufferIO.WriteString(msg)
-	} else {
-		if !this.rotateFile() {
-			fmt.Println("->wait has been rotate,write msg.")
-			this.bufferIO.WriteString(msg)
+	_, err := this.bufferIO.WriteString(msg)
+	fmt.Printf("->write file:%s error=%+v \r\n", this.currentfilePath, err)
+
+	if this.writtenBytes >= this.maxFileSize {
+		result := this.rotateFile()
+		if !result {
+			_, err = this.bufferIO.WriteString(msg)
+			fmt.Printf("->wait has been rotate,write msg. error=%s \r\n", err)
 		}
 	}
 
@@ -123,26 +127,11 @@ func (this *FileAppender) rotateFile() bool {
 		fmt.Println("->rotate File")
 
 		this.bufferIO.Flush()
-		atomic.AddInt32(&this.writtenBytes, -this.writtenBytes)
 
 		this.closeFileStream()
 		defer this.openFileStream()
 
 		dayname := base.DefaultUtil().NowTimeStr(2)
-		//removed expire file,(last)
-
-		var lastFile string
-
-		if !this.logNameAuto {
-			lastFile = fmt.Sprintf(this.template_ByName, this.currentfileName, dayname, this.maxBackupDayIndex, this.currentfileExt)
-		} else {
-			lastFile = fmt.Sprintf(this.template_ByDate, this.currentfileName, this.maxBackupDayIndex, this.currentfileExt)
-		}
-
-		if _, err := os.Stat(lastFile); err == nil {
-			fmt.Println("->deleted lastFile=" + lastFile)
-			os.Remove(lastFile)
-		}
 
 		var oldF, newF string
 		for n := this.maxBackupDayIndex - 1; n > 0; n-- {
@@ -154,12 +143,13 @@ func (this *FileAppender) rotateFile() bool {
 				oldF = fmt.Sprintf(this.template_ByDate, this.currentfileName, n, this.currentfileExt)
 				newF = fmt.Sprintf(this.template_ByDate, this.currentfileName, (n + 1), this.currentfileExt)
 			}
-			fmt.Println("->rename= old:" + oldF + " new:" + newF)
+			//fmt.Println("->rename= old:" + oldF + " new:" + newF)
 			if err := os.Rename(oldF, newF); err != nil {
-				v, _ := err.(*os.LinkError)
-				fmt.Printf("\r\n==============%v\r\n%+v", reflect.TypeOf(v), v)
-
-				os.Rename(oldF, newF+".rename")
+				v, ok := err.(*os.LinkError)
+				if ok && strings.Contains(v.Error(), "Access is denied") {
+					fmt.Printf("\r\n==============%v\r\n%+v", reflect.TypeOf(v), v.Error())
+					os.Rename(oldF, newF+".rename")
+				}
 			}
 		}
 		var ccname string
@@ -169,6 +159,10 @@ func (this *FileAppender) rotateFile() bool {
 			ccname = fmt.Sprintf(this.template_ByDate, this.currentfileName, 1, this.currentfileExt)
 		}
 		os.Rename(this.currentfilePath, ccname)
+
+		defer atomic.StoreInt32(&this.writtenBytes, 0)
+
+		fmt.Println("->rotate File end.")
 
 		return true
 	}
@@ -197,12 +191,26 @@ func (this *FileAppender) SetFormatter(formatter formatters.Formatter) {
 	this.formatter = formatter
 }
 
+func (this *FileAppender) Dispose() (err error) {
+	if this != nil {
+		err = this.bufferIO.Flush()
+		fmt.Printf("Dispose Flush=%v \r\n", err)
+		if err != nil {
+			return err
+		}
+		err = this.closeFileStream()
+		return err
+	}
+	return nil
+}
+
 func (this *FileAppender) closeFileStream() (err error) {
 	if this.fileStream != nil {
 		err = this.fileStream.Close()
 		if err == nil {
 			this.fileStream = nil
 		}
+		fmt.Printf("->closeFileStream,%s,err=%v \r\n", this.currentfilePath, err)
 	}
 	return err
 }
@@ -215,5 +223,9 @@ func (this *FileAppender) openFileStream() error {
 	//4-r 2-w 1-x linux
 	fs, err := os.OpenFile(this.currentfilePath, mode, 0666)
 	this.fileStream = fs
+	if this.bufferIO != nil {
+		this.bufferIO.Reset(this.fileStream)
+	}
+	fmt.Printf("->openFileStream,%s,err=%v \r\n", this.currentfilePath, err)
 	return err
 }
