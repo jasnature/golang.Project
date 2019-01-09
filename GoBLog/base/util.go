@@ -80,6 +80,13 @@ func (u *Util) PathOrFileExists(path string, mode int) (bool, error) {
 	return false, err
 }
 
+func (u *Util) GetFileNamAndExt(pathName string) (name string, ext string) {
+	str := filepath.Base(pathName)
+	ext = filepath.Ext(str)
+	name = strings.TrimSuffix(str, ext)
+	return name, ext
+}
+
 /*
 traceInfo must use defer call this function and end part need add (),
 etc: defer TraceMethodInfo("xxx",data1,data2,...)()
@@ -108,8 +115,22 @@ func (u *Util) TraceMethodInfo(funcname string, data ...interface{}) func() {
 	}
 }
 
-func (u *Util) NowTimeStr() string {
+//0 - full time
+//1 - not include millisecond
+//2 - only date(yyyy-MM-dd)
+//3 - only date(yy-MM-dd)
+func (u *Util) NowTimeStr(flag int) string {
 	nowTime := time.Now().String()
-	//return nowTime[:19]
-	return nowTime[:23]
+	str := ""
+	switch flag {
+	case 0:
+		str = nowTime[:23]
+	case 1:
+		str = nowTime[:19]
+	case 2:
+		str = nowTime[:10]
+	case 3:
+		str = nowTime[2:10]
+	}
+	return str
 }
