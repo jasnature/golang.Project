@@ -78,7 +78,12 @@ func (this *PatternFormatter) Format(level base.LogLevel, message string, args .
 		case "m":
 			return fmt.Sprintf(message, args...)
 		case "n":
-			return "\n"
+			switch runtime.GOOS {
+			case "windows":
+				return "\r\n"
+			default:
+				return "\n"
+			}
 		case "p":
 			return base.LogLevelIntMap[level]
 		case "S":
