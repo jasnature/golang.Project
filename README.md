@@ -17,7 +17,7 @@ This is used go language to develope program of proxy server with support http a
 * 2.支持直接代理访问  
 * 3.支持多反向代理服务器设置，类似于nginx代理切换功能。  
 * 4.自动切换反向配置的代理服务器，也可以自己实现切换策略  
-* 5.支持大并发连接接受。
+* 5.支持大并发连接。
 
 ### [GOBLog]  by golang program
 This is log writer for program runing.
