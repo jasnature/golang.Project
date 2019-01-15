@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 //standard txt log roll file of FileAppender,if hope use other type log,please used json jsonFileAppender/xmlFileAppender
@@ -20,16 +21,18 @@ type FileAppender struct {
 	formatters.FormatterManager
 	formatter formatters.Formatter
 
-	maxFileSize       int32
+	maxFileSize       int64
 	maxBackupDayIndex int
 
 	appendModel bool
 
 	//Has been write bytes
-	writtenBytes int32
-	bufferIO     *bufio.Writer
-	fileStream   *os.File
-	mu_lock      sync.Mutex
+	writtenBytes    int64
+	bufferIO        *bufio.Writer
+	fileStream      *os.File
+	mu_lock         sync.Mutex
+	writeStringChan chan string
+	IsDispose       bool
 
 	currentfilePath string
 	currentfileName string
@@ -67,11 +70,12 @@ func NewFileCustomAppender(filepathAndName string, appendModel bool, bufferSize 
 	}
 	obj = &FileAppender{
 		formatter:         formatters.DefaultPatternFormatter(),
-		maxFileSize:       int32(maxfilesize),
+		maxFileSize:       int64(maxfilesize),
 		maxBackupDayIndex: maxbakRollIndexByDay,
 		currentfilePath:   filepathAndName,
 		appendModel:       appendModel,
 		writtenBytes:      0,
+		writeStringChan:   make(chan string, 100),
 	}
 
 	if strings.TrimSpace(filepathAndName) == "" {
@@ -91,32 +95,41 @@ func NewFileCustomAppender(filepathAndName string, appendModel bool, bufferSize 
 	obj.template_ByName = "%s_%s_bak%d%s"
 	obj.template_ByDate = "%s_bak%d%s"
 	//fmt.Println("NewFileCustomAppender end")
+	go obj.processWriteChan()
+
 	return obj, err
 }
 
-//write msg no lock model but rotateFile has lock,goBLogFactory will be use channel to control queue of write msg function.
-func (this *FileAppender) WriteString(level base.LogLevel, message string, args ...interface{}) {
-	msg := this.Formatter().Format(level, message, args...)
-	//fmt.Println(msg)
-	//len([]rune(msg)) this len is count num
-	realBytes := []byte(msg)
+//write use channel control for msg and rotateFile has lock
+func (this *FileAppender) WriteString(level base.LogLevel, location string, dtime time.Time, message string, args ...interface{}) {
+	if !this.IsDispose {
+		this.writeStringChan <- this.Formatter().Format(level, location, dtime, message, args...)
+	}
+}
 
-	var lencount int32 = int32(len(realBytes))
-	atomic.AddInt32(&this.writtenBytes, lencount)
+func (this *FileAppender) processWriteChan() {
 
-	fmt.Printf("WriteString Print: current=%d total=%d max=%d \r\n", len(realBytes), this.writtenBytes, this.maxFileSize)
+	for msg := range this.writeStringChan {
+		//fmt.Println(msg)
+		//len([]rune(msg)) this len is count num
+		realBytes := []byte(msg)
 
-	_, err := this.bufferIO.WriteString(msg)
-	fmt.Printf("->write file:%s error=%+v \r\n", this.currentfilePath, err)
+		var lencount int64 = int64(len(realBytes))
+		atomic.AddInt64(&this.writtenBytes, lencount)
 
-	if this.writtenBytes >= this.maxFileSize {
-		result := this.rotateFile()
-		if !result {
-			_, err = this.bufferIO.WriteString(msg)
-			fmt.Printf("->wait has been rotate,write msg. error=%s \r\n", err)
+		//fmt.Printf("WriteString Print: current=%d total=%d max=%d \r\n", len(realBytes), this.writtenBytes, this.maxFileSize)
+
+		_, err := this.bufferIO.WriteString(msg)
+		//fmt.Printf("->write file:%s error=%+v \r\n", this.currentfilePath, err)
+
+		if this.writtenBytes >= this.maxFileSize {
+			result := this.rotateFile()
+			if !result {
+				_, err = this.bufferIO.WriteString(msg)
+				fmt.Printf("->wait has been rotate,write msg. error=%s \r\n", err)
+			}
 		}
 	}
-
 }
 
 func (this *FileAppender) rotateFile() bool {
@@ -160,7 +173,7 @@ func (this *FileAppender) rotateFile() bool {
 		}
 		os.Rename(this.currentfilePath, ccname)
 
-		defer atomic.StoreInt32(&this.writtenBytes, 0)
+		defer atomic.StoreInt64(&this.writtenBytes, 0)
 
 		fmt.Println("->rotate File end.")
 
@@ -193,12 +206,20 @@ func (this *FileAppender) SetFormatter(formatter formatters.Formatter) {
 
 func (this *FileAppender) Dispose() (err error) {
 	if this != nil {
+		this.IsDispose = true
+		for {
+			if len(this.writeStringChan) <= 0 {
+				break
+			}
+			time.Sleep(time.Millisecond * 300)
+		}
 		err = this.bufferIO.Flush()
-		fmt.Printf("Dispose Flush=%v \r\n", err)
+		//fmt.Printf("Dispose Flush=%v \r\n", err)
 		if err != nil {
 			return err
 		}
 		err = this.closeFileStream()
+		close(this.writeStringChan)
 		return err
 	}
 	return nil
@@ -210,7 +231,7 @@ func (this *FileAppender) closeFileStream() (err error) {
 		if err == nil {
 			this.fileStream = nil
 		}
-		fmt.Printf("->closeFileStream,%s,err=%v \r\n", this.currentfilePath, err)
+		//fmt.Printf("->closeFileStream,%s,err=%v \r\n", this.currentfilePath, err)
 	}
 	return err
 }
@@ -226,6 +247,10 @@ func (this *FileAppender) openFileStream() error {
 	if this.bufferIO != nil {
 		this.bufferIO.Reset(this.fileStream)
 	}
-	fmt.Printf("->openFileStream,%s,err=%v \r\n", this.currentfilePath, err)
+	finfo, _ := fs.Stat()
+	if finfo != nil {
+		atomic.StoreInt64(&this.writtenBytes, finfo.Size())
+	}
+	//fmt.Printf("->openFileStream,%s,size=%d,err=%v \r\n", this.currentfilePath, this.writtenBytes, err)
 	return err
 }
