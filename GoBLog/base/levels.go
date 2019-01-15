@@ -3,7 +3,7 @@ package base
 type LogLevel int
 
 const (
-	None LogLevel = iota
+	OFF LogLevel = iota
 	FATAL
 	ERROR
 	WARN
@@ -13,7 +13,7 @@ const (
 )
 
 var LogLevelStringMap = map[string]LogLevel{
-	"None":  None,
+	"OFF":   OFF,
 	"FATAL": FATAL,
 	"ERROR": ERROR,
 	"WARN":  WARN,
@@ -23,7 +23,7 @@ var LogLevelStringMap = map[string]LogLevel{
 }
 
 var LogLevelIntMap = map[LogLevel]string{
-	None:  "None",
+	OFF:   "OFF",
 	FATAL: "FATAL",
 	ERROR: "ERROR",
 	WARN:  "WARN",
@@ -31,3 +31,5 @@ var LogLevelIntMap = map[LogLevel]string{
 	DEBUG: "DEBUG",
 	TRACE: "TRACE",
 }
+
+//INHERIT: "INHERIT",

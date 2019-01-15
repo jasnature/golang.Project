@@ -5,12 +5,14 @@ import (
 	"GoBLog/base"
 	"GoBLog/formatters"
 	"fmt"
+	"time"
 )
 
 type ConsoleAppender struct {
 	Appender
 	formatters.FormatterManager
 	formatter formatters.Formatter
+	base.IDispose
 }
 
 func NewConsoleAppender() *ConsoleAppender {
@@ -20,8 +22,8 @@ func NewConsoleAppender() *ConsoleAppender {
 	return this
 }
 
-func (this *ConsoleAppender) WriteString(level base.LogLevel, message string, args ...interface{}) {
-	fmt.Println(this.Formatter().Format(level, message, args...))
+func (this *ConsoleAppender) WriteString(level base.LogLevel, location string, dtime time.Time, message string, args ...interface{}) {
+	fmt.Print(this.Formatter().Format(level, location, dtime, message, args...))
 }
 
 func (this *ConsoleAppender) Formatter() formatters.Formatter {
@@ -30,4 +32,9 @@ func (this *ConsoleAppender) Formatter() formatters.Formatter {
 
 func (this *ConsoleAppender) SetFormatter(formatter formatters.Formatter) {
 	this.formatter = formatter
+}
+
+func (this *ConsoleAppender) Dispose() (err error) {
+	//none dispose resouce.
+	return nil
 }

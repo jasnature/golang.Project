@@ -7,10 +7,11 @@ package formatters
 
 import (
 	"GoBLog/base"
+	"time"
 )
 
 type Formatter interface {
-	Format(level base.LogLevel, message string, args ...interface{}) string
+	Format(level base.LogLevel, location string, dtime time.Time, message string, args ...interface{}) string
 }
 
 type FormatterManager interface {
@@ -20,5 +21,5 @@ type FormatterManager interface {
 
 //return a standard Pattern formatter
 func DefaultPatternFormatter() Formatter {
-	return NewPatternFormatter("[%p] %d %l %n %m %n")
+	return NewPatternFormatter("[%p] %d %L %n %m %n")
 }

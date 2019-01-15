@@ -25,7 +25,7 @@ func TestFileRolling(t *testing.T) {
 
 	filer.SetFormatter(formatters.DefaultPatternFormatter())
 	for i := 0; i < 20; i++ {
-		filer.WriteString(base.TRACE, "TestFileRolling=[%d] %s", i, "中文测试")
+		filer.WriteString(base.TRACE, "test", time.Now(), "TestFileRolling=[%d] %s", i, "中文测试")
 		time.Sleep(time.Millisecond * 100)
 	}
 	t.Logf("dispose:%v \r\n", filer.Dispose())
@@ -47,7 +47,7 @@ func TestFileRolling(t *testing.T) {
 
 //func TestMutiple(t *testing.T) {
 //	console := NewConsoleAppender()
-//	filer, _ := NewFileAppender("goblog.log", false, 1024)
+//	filer, _ := NewFileAppender("goblog.log", false)
 
 //	mutiple := NewMultipleAppender(100, console, filer)
 

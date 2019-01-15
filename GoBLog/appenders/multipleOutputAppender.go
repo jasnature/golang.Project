@@ -2,6 +2,7 @@ package appenders
 
 import (
 	"GoBLog/base"
+	"time"
 )
 
 //can support mutiple type appender.
@@ -14,9 +15,11 @@ type multipleOutputAppender struct {
 }
 
 type chanMsg struct {
-	level   base.LogLevel
-	message string
-	args    []interface{}
+	level    base.LogLevel
+	location string
+	dtime    time.Time
+	message  string
+	args     []interface{}
 }
 
 func NewMultipleAppender(maxQueue int, appenders ...Appender) Appender {
@@ -34,14 +37,16 @@ func NewMultipleAppender(maxQueue int, appenders ...Appender) Appender {
 func (this *multipleOutputAppender) processWriteString() {
 	for data := range this.syncChan {
 		for _, appender := range this.appenderList {
-			appender.WriteString(data.level, data.message, data.args...)
+			appender.WriteString(data.level, data.location, data.dtime, data.message, data.args...)
 		}
 	}
 }
 
-func (this *multipleOutputAppender) WriteString(level base.LogLevel, message string, args ...interface{}) {
+func (this *multipleOutputAppender) WriteString(level base.LogLevel, location string, dtime time.Time, message string, args ...interface{}) {
 	this.syncChan <- chanMsg{
 		level,
+		location,
+		dtime,
 		message,
 		args,
 	}

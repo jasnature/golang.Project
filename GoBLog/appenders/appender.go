@@ -6,10 +6,11 @@ package appenders
 
 import (
 	"GoBLog/base"
+	"time"
 )
 
 type Appender interface {
-	WriteString(level base.LogLevel, message string, args ...interface{})
+	WriteString(level base.LogLevel, location string, dtime time.Time, message string, args ...interface{})
 }
 
 type AppenderManager interface {

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"regexp"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -36,22 +35,15 @@ func NewPatternFormatter(pattern string) *PatternFormatter {
 
 //%S - Stack info print
 //%d or %d{golang Format string,e.g:2006-01-02 15:04:05.000} - The current date-time, using time.Now().Format("DefaultTimeLayout Field ")
-//%F - The filename the log statement is in
-//%l - The location of the log statement, e.g. file path : 12
-//%L - The line number the log statement is on
+//%L - The location of the log statement, e.g. file path : 12
 //%m - The log message and its arguments formatted with fmt.Sprintf
 //%n - A new-line character
 //%p - Priority - the log level
-func (this *PatternFormatter) Format(level base.LogLevel, message string, args ...interface{}) string {
+func (this *PatternFormatter) Format(level base.LogLevel, location string, dtime time.Time, message string, args ...interface{}) string {
 
 	// TODO
 	// %M - function name
-	_, file, line, ok := runtime.Caller(2)
 
-	if !ok {
-		file = "not found file."
-		line = 0
-	}
 	msg := this.reg.ReplaceAllStringFunc(this.Pattern, func(m string) string {
 		//fmt.Println(m)
 		parts := this.reg.FindStringSubmatch(m)
@@ -66,17 +58,17 @@ func (this *PatternFormatter) Format(level base.LogLevel, message string, args .
 		//			return caller.pkg
 		case "d":
 			if len(parts) == 3 && strings.TrimSpace(parts[2]) != "" {
-				return time.Now().Format(parts[2])
+				return dtime.Format(parts[2])
 			}
-			return time.Now().Format(this.DefaultTimeLayout)
-		case "F":
-			return file
-		case "l":
-			return fmt.Sprintf("%s : %d", file, line)
+			return dtime.Format(this.DefaultTimeLayout)
 		case "L":
-			return strconv.Itoa(line)
+			return location
 		case "m":
-			return fmt.Sprintf(message, args...)
+			if message != "" {
+				return fmt.Sprintf(message, args...)
+			} else {
+				return fmt.Sprint(args...)
+			}
 		case "n":
 			switch runtime.GOOS {
 			case "windows":
