@@ -4,34 +4,37 @@ import (
 	"GoBLog/appenders"
 	"GoBLog/base"
 	"errors"
+	"fmt"
+	"os"
+	"runtime"
 	"strings"
+	"time"
 )
 
 type ILogger interface {
 	appenders.AppenderManager
 	Name() string
 	FullLinkName() string
-	Enabled() map[base.LogLevel]bool
 	Parent() ILogger
 	Level() string
 	SetLevel(base.LogLevel)
 	Log(level base.LogLevel, formate string, params ...interface{})
 	NewChildLogger(logName string) (ILogger, error)
-	ChildList() []ILogger
+	ChildMapList() map[string]ILogger
 	GetChildLogger(name string) ILogger
 
 	Fatal(params ...interface{})
-	Fatalf(params ...interface{})
+	Fatalf(formate string, params ...interface{})
 	Error(params ...interface{})
-	Errorf(params ...interface{})
+	Errorf(formate string, params ...interface{})
 	Warn(params ...interface{})
-	Warnf(params ...interface{})
+	Warnf(formate string, params ...interface{})
 	Info(params ...interface{})
-	Infof(params ...interface{})
+	Infof(formate string, params ...interface{})
 	Debug(params ...interface{})
-	Debugf(params ...interface{})
+	Debugf(formate string, params ...interface{})
 	Trace(params ...interface{})
-	Tracef(params ...interface{})
+	Tracef(formate string, params ...interface{})
 }
 
 //full implement ILogger interface
@@ -39,9 +42,8 @@ type GoBLogger struct {
 	ILogger
 	level       base.LogLevel
 	logName     string
-	enabled     map[base.LogLevel]bool
 	appender    appenders.Appender
-	childrens   []ILogger
+	childrens   map[string]ILogger
 	parent      ILogger
 	ExitOnFatal bool
 }
@@ -52,9 +54,8 @@ func NewGoBLogger(logName string) ILogger {
 	obj := ILogger(&GoBLogger{
 		level:       base.DEBUG,
 		logName:     logName,
-		enabled:     make(map[base.LogLevel]bool),
 		appender:    appenders.NewConsoleAppender(),
-		childrens:   make([]ILogger, 3),
+		childrens:   make(map[string]ILogger, 3),
 		parent:      nil,
 		ExitOnFatal: true,
 	})
@@ -62,42 +63,62 @@ func NewGoBLogger(logName string) ILogger {
 	return obj
 }
 
-//New child logger ,level is base.INHERIT, appender inherit, parent point to upper
+//New child logger ,level inherit parent can reset, appender inherit, parent point to upper
 func (this *GoBLogger) NewChildLogger(logName string) (ILogger, error) {
 	if strings.TrimSpace(logName) == "" {
 		return nil, errors.New("logname is null.")
 	}
 	child := ILogger(&GoBLogger{
-		level:     base.INHERIT,
-		logName:   logName,
-		enabled:   make(map[base.LogLevel]bool),
-		appender:  nil,
-		childrens: make([]ILogger, 0),
 		parent:    this,
+		level:     base.LogLevelStringMap[this.Level()],
+		logName:   logName,
+		appender:  nil,
+		childrens: make(map[string]ILogger, 0),
 	})
-	this.childrens = append(this.childrens, child)
+	if _, ok := this.childrens[logName]; ok {
+		return nil, errors.New("logname it is exist.")
+	}
+	this.childrens[logName] = child
 	return child, nil
 }
 
-func (this *GoBLogger) Level() string {
-	if this.level == base.INHERIT {
-		return this.parent.Level()
+func (this *GoBLogger) GetChildLogger(name string) ILogger {
+	return this.childrens[name]
+}
+
+func (this *GoBLogger) Log(level base.LogLevel, formate string, params ...interface{}) {
+	//None=0 FATAL ERROR WARN INFO DEBUG TRACE
+	if this.level < level {
+		return
 	}
+	app := this.Appender()
+
+	_, file, line, ok := runtime.Caller(2)
+
+	if !ok {
+		file = "not found file."
+		line = 0
+	}
+
+	if app != nil {
+		app.WriteString(level, fmt.Sprintf("%s , %d", file, line), time.Now(), formate, params...)
+	}
+
+	if this.ExitOnFatal && level == base.FATAL {
+		//fmt.Println("ExitOnFatal")
+		os.Exit(1)
+	}
+}
+
+func (this *GoBLogger) Level() string {
 	return base.LogLevelIntMap[this.level]
 }
 
 func (this *GoBLogger) SetLevel(level base.LogLevel) {
 	this.level = level
-	for k := range base.LogLevelIntMap {
-		if k <= level {
-			this.enabled[k] = true
-		} else {
-			this.enabled[k] = false
-		}
-	}
 }
 
-func (this *GoBLogger) Children() []ILogger {
+func (this *GoBLogger) ChildMapList() map[string]ILogger {
 	return this.childrens
 }
 
@@ -129,9 +150,45 @@ func (this *GoBLogger) Appender() appenders.Appender {
 		return ap
 	}
 	if this.parent != nil {
+
 		if ap := this.parent.Appender(); ap != nil {
+			//if find then init it to child.
+			this.appender = ap
 			return ap
 		}
 	}
 	return nil
+}
+
+func (this *GoBLogger) String() string {
+	TypeName := "ChildNode"
+	if this.parent == nil {
+		TypeName = "RootNode"
+	}
+	return fmt.Sprintf("[LoggerName]=%s [FullName]=%s [Type]=%s [ChildCount]=%d [Level]=%s", this.logName, this.FullLinkName(), TypeName, len(this.childrens), this.Level())
+}
+
+func (this *GoBLogger) Fatal(params ...interface{}) { this.Log(base.FATAL, "", params...) }
+func (this *GoBLogger) Fatalf(formate string, params ...interface{}) {
+	this.Log(base.FATAL, formate, params...)
+}
+func (this *GoBLogger) Error(params ...interface{}) { this.Log(base.ERROR, "", params...) }
+func (this *GoBLogger) Errorf(formate string, params ...interface{}) {
+	this.Log(base.ERROR, formate, params...)
+}
+func (this *GoBLogger) Warn(params ...interface{}) { this.Log(base.WARN, "", params...) }
+func (this *GoBLogger) Warnf(formate string, params ...interface{}) {
+	this.Log(base.WARN, formate, params...)
+}
+func (this *GoBLogger) Info(params ...interface{}) { this.Log(base.INFO, "", params...) }
+func (this *GoBLogger) Infof(formate string, params ...interface{}) {
+	this.Log(base.INFO, formate, params...)
+}
+func (this *GoBLogger) Debug(params ...interface{}) { this.Log(base.DEBUG, "", params...) }
+func (this *GoBLogger) Debugf(formate string, params ...interface{}) {
+	this.Log(base.DEBUG, formate, params...)
+}
+func (this *GoBLogger) Trace(params ...interface{}) { this.Log(base.TRACE, "", params...) }
+func (this *GoBLogger) Tracef(formate string, params ...interface{}) {
+	this.Log(base.TRACE, formate, params...)
 }
