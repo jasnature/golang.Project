@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -83,13 +84,24 @@ func NewFileCustomAppender(filepathAndName string, appendModel bool, bufferSize 
 		obj.logNameAuto = true
 	}
 
+	if !filepath.IsAbs(obj.currentfilePath) {
+		obj.currentfilePath, _ = filepath.Abs(obj.currentfilePath)
+	}
+
+	obj.currentfileName, obj.currentfileExt = base.DefaultUtil().GetFileNamAndExt(obj.currentfilePath)
+	if strings.TrimSpace(obj.currentfileExt) == "" {
+		obj.currentfileExt = ".log"
+		obj.currentfilePath += ".log"
+	}
+
 	err = obj.ResetFilename(obj.currentfilePath)
 	if err != nil {
 		obj = nil
 		return nil, err
 	}
-	obj.currentfileName, obj.currentfileExt = base.DefaultUtil().GetFileNamAndExt(obj.currentfilePath)
-	//fmt.Println(obj.currentfileName)
+
+	fmt.Printf("currentfilePath=%s | %s | %s \r\n", obj.currentfilePath, obj.currentfileName, obj.currentfileExt)
+
 	obj.bufferIO = bufio.NewWriterSize(obj.fileStream, int(bufferSize))
 
 	obj.template_ByName = "%s_%s_bak%d%s"
@@ -207,11 +219,13 @@ func (this *FileAppender) SetFormatter(formatter formatters.Formatter) {
 func (this *FileAppender) Dispose() (err error) {
 	if this != nil {
 		this.IsDispose = true
-		for {
+
+		for try := 10; try > 0; try-- {
 			if len(this.writeStringChan) <= 0 {
 				break
 			}
 			time.Sleep(time.Millisecond * 300)
+			//fmt.Printf("try=%d,\r\n", try)
 		}
 		err = this.bufferIO.Flush()
 		//fmt.Printf("Dispose Flush=%v \r\n", err)
@@ -241,8 +255,13 @@ func (this *FileAppender) openFileStream() error {
 		mode = os.O_WRONLY | os.O_CREATE
 	}
 
+	if ok, _ := base.DefaultUtil().PathOrFileExists(this.currentfilePath, 0); !ok {
+		//fmt.Println("OpenFile not exists:" + this.currentfilePath)
+		os.MkdirAll(filepath.Dir(this.currentfilePath), 0666)
+	}
 	//4-r 2-w 1-x linux
 	fs, err := os.OpenFile(this.currentfilePath, mode, 0666)
+
 	this.fileStream = fs
 	if this.bufferIO != nil {
 		this.bufferIO.Reset(this.fileStream)

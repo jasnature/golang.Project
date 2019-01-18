@@ -19,17 +19,17 @@ import (
 func TestFileRolling(t *testing.T) {
 
 	//filer, _ := NewFileAppender("goblog.log", true)
-	filer, _ := NewFileAppender("", true)
+	filer, _ := NewFileAppender("./test", true)
 
 	//filer.WriteString(base.DEBUG, "TestFileRolling=%d %s", 1, "1111")
 
 	filer.SetFormatter(formatters.DefaultPatternFormatter())
 	for i := 0; i < 20; i++ {
 		filer.WriteString(base.TRACE, "test", time.Now(), "TestFileRolling=[%d] %s", i, "中文测试")
-		time.Sleep(time.Millisecond * 100)
+		time.Sleep(time.Millisecond * 10)
 	}
 	t.Logf("dispose:%v \r\n", filer.Dispose())
-	time.Sleep(time.Second * 1)
+
 }
 
 //func TestDefaultFileRolling(t *testing.T) {

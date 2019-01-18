@@ -35,3 +35,11 @@ func TestByteSize(t *testing.T) {
 	t.Logf("MB:%d", MB)
 	t.Logf("GB:%d", GB)
 }
+
+func TestRunOutputModel(t *testing.T) {
+	var a = ConsoleOutput | FileOutput
+	t.Logf("AllRunOutput:%d", a)
+	t.Logf("ConsoleOutput:%d", ConsoleOutput)
+	t.Logf("FileOutput:%d", FileOutput)
+
+}

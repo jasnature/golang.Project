@@ -13,6 +13,7 @@ import (
 
 type ILogger interface {
 	appenders.AppenderManager
+	base.IDispose
 	Name() string
 	FullLinkName() string
 	Parent() ILogger
@@ -48,7 +49,7 @@ type GoBLogger struct {
 	ExitOnFatal bool
 }
 
-// New a default debug level Logger and then reset some field.
+// New a default debug level Logger by output console and then reset some field.
 // logName can set empty,logname use to differentiate and division logger and children logger
 func NewGoBLogger(logName string) ILogger {
 	obj := ILogger(&GoBLogger{
@@ -93,6 +94,9 @@ func (this *GoBLogger) Log(level base.LogLevel, formate string, params ...interf
 	}
 	app := this.Appender()
 
+	if app == nil {
+		return
+	}
 	_, file, line, ok := runtime.Caller(2)
 
 	if !ok {
@@ -165,7 +169,15 @@ func (this *GoBLogger) String() string {
 	if this.parent == nil {
 		TypeName = "RootNode"
 	}
-	return fmt.Sprintf("[LoggerName]=%s [FullName]=%s [Type]=%s [ChildCount]=%d [Level]=%s", this.logName, this.FullLinkName(), TypeName, len(this.childrens), this.Level())
+	return fmt.Sprintf(" { [LoggerName]=%s [FullName]=%s [Type]=%s [ChildCount]=%d [Level]=%s } ", this.logName, this.FullLinkName(), TypeName, len(this.childrens), this.Level())
+}
+
+func (this *GoBLogger) Dispose() error {
+	ref, ok := this.appender.(base.IDispose)
+	if ok {
+		ref.Dispose()
+	}
+	return nil
 }
 
 func (this *GoBLogger) Fatal(params ...interface{}) { this.Log(base.FATAL, "", params...) }

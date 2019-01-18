@@ -1,13 +1,30 @@
 package GoBLog
 
 import (
-	"GoBLog/appenders"
+	_ "GoBLog/appenders"
 	"GoBLog/base"
 	"testing"
+	_ "time"
 )
 
 func TestLogFactory(t *testing.T) {
+	var d1 = DefaultLogFactory.GetLogger()
+	var d2 = DefaultLogFactory.GetLogger()
+	t.Logf("d1=d2?%v", d1 == d2)
+	d1.Debug("11111111111111111111111")
+	d2.Debug("2222222222222222222222222")
+	d1.Dispose()
 
+	var d3 = DefaultLogFactory.GetLoggerByName("xxoo", base.ConsoleOutput|base.FileOutput)
+	var d4 = DefaultLogFactory.GetLoggerByName("xxoo1", base.ConsoleOutput|base.FileOutput)
+	t.Logf("d3=d4?%v", d3 == d4)
+	d3.Debug("333333333333333333333333")
+	d4.Debug("4444444444444444444444444444")
+	d3.Dispose()
+	d4.Dispose()
+	var ps = DefaultLogFactory.LoggerPoolList()
+	t.Logf("LoggerPools:%v len=%d", ps, len(ps))
+	//time.Sleep(time.Second * 3)
 }
 
 func TestGoBLogger(t *testing.T) {
@@ -36,21 +53,24 @@ func TestGoBLogger(t *testing.T) {
 
 }
 
-func TestGoBLoggerToFile(t *testing.T) {
-	parentLogger := NewGoBLogger("Main")
-	app, _ := appenders.DefaultFileAppender()
-	fileapp := app.(*appenders.FileAppender)
-	//fmt.Println(reflect.TypeOf(app))
-	parentLogger.SetAppender(app)
-	var cc chan int = make(chan int)
-	go func() {
-		for i := 0; i < 10; i++ {
-			parentLogger.Infof("#####################=%d", i)
-			parentLogger.Debugf("#####################=%d", i)
-			parentLogger.Errorf("#####################=%d", i)
-		}
-		cc <- 1
-	}()
-	<-cc
-	fileapp.Dispose()
-}
+//func TestGoBLoggerToFile(t *testing.T) {
+//	parentLogger := NewGoBLogger("Main")
+//	app, _ := appenders.DefaultFileAppender()
+//	fileapp := app.(*appenders.FileAppender)
+//	//fmt.Println(reflect.TypeOf(app))
+//	parentLogger.SetAppender(app)
+//	var cc chan int = make(chan int)
+//	go func() {
+//		for i := 0; i < 2; i++ {
+//			parentLogger.Infof("#####################=%d", i)
+//			parentLogger.Info("my name is info.")
+//			parentLogger.Debugf("#####################=%d", i)
+//			parentLogger.Debug("My name is debug.")
+//			parentLogger.Errorf("#####################=%d", i)
+//			parentLogger.Error("my name is error.")
+//		}
+//		cc <- 1
+//	}()
+//	<-cc
+//	fileapp.Dispose()
+//}
