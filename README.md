@@ -19,5 +19,13 @@ This is used go language to develope program of proxy server with support http a
 * 4.自动切换反向配置的代理服务器，也可以自己实现切换策略  
 * 5.支持大并发连接。
 
-### [GOBLog]  by golang program
-This is log writer for program runing.
+### [GOBLog]  log record for golang program
+This is log writer for go program runing.
+
+===Propertys and functions===
+* 1.can custom formatter message, default support simple and pattern Formatter.
+* 2.can custom appender output and multiple Output Appenders.
+* 3.can set logger output level , support level filter.
+* 4.can support logger factory pool manager.
+* 5.can support multiple thread log writer.
+* 6.can support rotate file config. 
