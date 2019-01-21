@@ -4,7 +4,6 @@ package GoBLog
 import (
 	"GoBLog/appenders"
 	"GoBLog/base"
-	"fmt"
 	"sync"
 )
 
@@ -37,15 +36,17 @@ func (this *LogFactory) GetLoggerByName(name string, runModel base.RunOutputMode
 
 	if name == "" {
 		if this.defaultLogger == nil {
-			fmt.Println("new defaultLogger")
+			//fmt.Println("new defaultLogger")
 			this.defaultLogger = NewGoBLogger(this.defaultName)
 			newlogger = this.defaultLogger
 		} else {
 			return this.defaultLogger
 		}
 	} else {
+		//fmt.Printf("get Logger %s \r\n", name)
 		logger, ok := this.loggerPool[name]
 		if !ok {
+			//fmt.Printf("new Logger of return %s\r\n", name)
 			logger = NewGoBLogger(name)
 			this.loggerPool[name] = logger
 		}
@@ -58,7 +59,6 @@ func (this *LogFactory) GetLoggerByName(name string, runModel base.RunOutputMode
 		newlogger.SetAppender(nil)
 	case base.FileOutput:
 		fapp := this.createFileAppender(name)
-		//fmt.Printf("base.FileOutput,%v", err)
 		newlogger.SetAppender(fapp)
 	case base.ConsoleOutput | base.FileOutput:
 		capp := appenders.NewConsoleAppender()
@@ -76,7 +76,7 @@ func (this *LogFactory) createFileAppender(name string) appenders.Appender {
 	if name == "" {
 		fapp, _ = appenders.DefaultFileAppender()
 	} else {
-		fapp, _ = appenders.NewFileAppender(name, true)
+		fapp, _ = appenders.NewFileAppender("./Log_Record/"+name, true)
 	}
 	return fapp
 }

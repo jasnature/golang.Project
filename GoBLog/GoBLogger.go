@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
 	"runtime"
 	"strings"
 	"time"
@@ -169,7 +170,9 @@ func (this *GoBLogger) String() string {
 	if this.parent == nil {
 		TypeName = "RootNode"
 	}
-	return fmt.Sprintf(" { [LoggerName]=%s [FullName]=%s [Type]=%s [ChildCount]=%d [Level]=%s } ", this.logName, this.FullLinkName(), TypeName, len(this.childrens), this.Level())
+
+	return fmt.Sprintf(" { [LoggerName]=%s [FullName]=%s [Type]=%s [ChildCount]=%d [Level]=%s AppendType=%v} ",
+		this.logName, this.FullLinkName(), TypeName, len(this.childrens), this.Level(), reflect.TypeOf(this.appender))
 }
 
 func (this *GoBLogger) Dispose() error {

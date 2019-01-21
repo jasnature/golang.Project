@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -17,10 +16,7 @@ import (
 //standard txt log roll file of FileAppender,if hope use other type log,please used json jsonFileAppender/xmlFileAppender
 //if set maxBackupDayIndex then auto roll flush and backup file,first index=1 it is latest backup,max index it is old backup.
 type FileAppender struct {
-	Appender
-	base.IDispose
-	formatters.FormatterManager
-	formatter formatters.Formatter
+	AppenderBase
 
 	maxFileSize       int64
 	maxBackupDayIndex int
@@ -28,12 +24,9 @@ type FileAppender struct {
 	appendModel bool
 
 	//Has been write bytes
-	writtenBytes    int64
-	bufferIO        *bufio.Writer
-	fileStream      *os.File
-	mu_lock         sync.Mutex
-	writeStringChan chan string
-	IsDispose       bool
+	writtenBytes int64
+	bufferIO     *bufio.Writer
+	fileStream   *os.File
 
 	currentfilePath string
 	currentfileName string
@@ -70,15 +63,16 @@ func NewFileCustomAppender(filepathAndName string, appendModel bool, bufferSize 
 		bufferSize = 1024 * 128
 	}
 	obj = &FileAppender{
-		formatter:         formatters.DefaultPatternFormatter(),
+
 		maxFileSize:       int64(maxfilesize),
 		maxBackupDayIndex: maxbakRollIndexByDay,
 		currentfilePath:   filepathAndName,
 		appendModel:       appendModel,
 		writtenBytes:      0,
-		writeStringChan:   make(chan string, 100),
 	}
 
+	obj.formatter = formatters.DefaultPatternFormatter()
+	obj.bufferChan = make(chan string, 100)
 	if strings.TrimSpace(filepathAndName) == "" {
 		obj.currentfilePath = base.DefaultUtil().NowTimeStr(2) + ".log"
 		obj.logNameAuto = true
@@ -100,7 +94,7 @@ func NewFileCustomAppender(filepathAndName string, appendModel bool, bufferSize 
 		return nil, err
 	}
 
-	fmt.Printf("currentfilePath=%s | %s | %s \r\n", obj.currentfilePath, obj.currentfileName, obj.currentfileExt)
+	//fmt.Printf("currentfilePath=%s | %s | %s \r\n", obj.currentfilePath, obj.currentfileName, obj.currentfileExt)
 
 	obj.bufferIO = bufio.NewWriterSize(obj.fileStream, int(bufferSize))
 
@@ -108,20 +102,22 @@ func NewFileCustomAppender(filepathAndName string, appendModel bool, bufferSize 
 	obj.template_ByDate = "%s_bak%d%s"
 	//fmt.Println("NewFileCustomAppender end")
 	go obj.processWriteChan()
+	obj.isDispose = false
 
 	return obj, err
 }
 
 //write use channel control for msg and rotateFile has lock
 func (this *FileAppender) WriteString(level base.LogLevel, location string, dtime time.Time, message string, args ...interface{}) {
-	if !this.IsDispose {
-		this.writeStringChan <- this.Formatter().Format(level, location, dtime, message, args...)
+	if !this.isDispose {
+		//fmt.Printf("FileAppender->WriteString->writeStringChan %s \r\n", message)
+		this.bufferChan <- this.Formatter().Format(level, location, dtime, message, args...)
 	}
 }
 
 func (this *FileAppender) processWriteChan() {
 
-	for msg := range this.writeStringChan {
+	for msg := range this.bufferChan {
 		//fmt.Println(msg)
 		//len([]rune(msg)) this len is count num
 		realBytes := []byte(msg)
@@ -132,13 +128,13 @@ func (this *FileAppender) processWriteChan() {
 		//fmt.Printf("WriteString Print: current=%d total=%d max=%d \r\n", len(realBytes), this.writtenBytes, this.maxFileSize)
 
 		_, err := this.bufferIO.WriteString(msg)
-		//fmt.Printf("->write file:%s error=%+v \r\n", this.currentfilePath, err)
+		//fmt.Printf("->Write bufferIO:%s error=%+v \r\n", this.currentfilePath, err)
 
 		if this.writtenBytes >= this.maxFileSize {
 			result := this.rotateFile()
 			if !result {
 				_, err = this.bufferIO.WriteString(msg)
-				fmt.Printf("->wait has been rotate,write msg. error=%s \r\n", err)
+				fmt.Printf("->Wait has been rotate,write msg. error=%s \r\n", err)
 			}
 		}
 	}
@@ -149,7 +145,7 @@ func (this *FileAppender) rotateFile() bool {
 	this.mu_lock.Lock()
 
 	if this.writtenBytes >= this.maxFileSize {
-		fmt.Println("->rotate File")
+		fmt.Println("->rotate File start...")
 
 		this.bufferIO.Flush()
 
@@ -217,15 +213,20 @@ func (this *FileAppender) SetFormatter(formatter formatters.Formatter) {
 }
 
 func (this *FileAppender) Dispose() (err error) {
-	if this != nil {
-		this.IsDispose = true
+	defer this.mu_lock.Unlock()
+	this.mu_lock.Lock()
+
+	if this != nil && !this.isDispose {
+		this.isDispose = true
 
 		for try := 10; try > 0; try-- {
-			if len(this.writeStringChan) <= 0 {
+			time.Sleep(time.Millisecond * 200)
+			if len(this.bufferChan) <= 0 && this.bufferIO.Buffered() <= 0 {
+				//fmt.Printf("FileAppender writeStringChan len=%d,\r\n", len(this.writeStringChan))
 				break
 			}
-			time.Sleep(time.Millisecond * 300)
-			//fmt.Printf("try=%d,\r\n", try)
+			//fmt.Printf("FileAppender Dispose try=%d,\r\n", try)
+			err = this.bufferIO.Flush()
 		}
 		err = this.bufferIO.Flush()
 		//fmt.Printf("Dispose Flush=%v \r\n", err)
@@ -233,7 +234,7 @@ func (this *FileAppender) Dispose() (err error) {
 			return err
 		}
 		err = this.closeFileStream()
-		close(this.writeStringChan)
+		close(this.bufferChan)
 		return err
 	}
 	return nil

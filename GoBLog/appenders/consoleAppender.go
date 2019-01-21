@@ -9,16 +9,12 @@ import (
 )
 
 type ConsoleAppender struct {
-	Appender
-	formatters.FormatterManager
-	formatter formatters.Formatter
-	base.IDispose
+	AppenderBase
 }
 
 func NewConsoleAppender() *ConsoleAppender {
-	this := &ConsoleAppender{
-		formatter: formatters.NewSimpleFormatter(),
-	}
+	this := &ConsoleAppender{}
+	this.formatter = formatters.NewSimpleFormatter()
 	return this
 }
 

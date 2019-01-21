@@ -1,10 +1,10 @@
 package GoBLog
 
 import (
-	_ "GoBLog/appenders"
+	"GoBLog/appenders"
 	"GoBLog/base"
 	"testing"
-	_ "time"
+	//"time"
 )
 
 func TestLogFactory(t *testing.T) {
@@ -15,16 +15,21 @@ func TestLogFactory(t *testing.T) {
 	d2.Debug("2222222222222222222222222")
 	d1.Dispose()
 
-	var d3 = DefaultLogFactory.GetLoggerByName("xxoo", base.ConsoleOutput|base.FileOutput)
-	var d4 = DefaultLogFactory.GetLoggerByName("xxoo1", base.ConsoleOutput|base.FileOutput)
+	var d3 = DefaultLogFactory.GetLoggerByName("3year", base.FileOutput|base.ConsoleOutput)
+	var d4 = DefaultLogFactory.GetLoggerByName("3year", base.FileOutput|base.ConsoleOutput)
+	var d5 = DefaultLogFactory.GetLoggerByName("5day", base.FileOutput|base.ConsoleOutput)
 	t.Logf("d3=d4?%v", d3 == d4)
+
 	d3.Debug("333333333333333333333333")
 	d4.Debug("4444444444444444444444444444")
-	d3.Dispose()
-	d4.Dispose()
+	d5.Info("55555555555555555555555555555555555555")
+
+	defer d3.Dispose()
+	defer d4.Dispose()
+	defer d5.Dispose()
 	var ps = DefaultLogFactory.LoggerPoolList()
 	t.Logf("LoggerPools:%v len=%d", ps, len(ps))
-	//time.Sleep(time.Second * 3)
+
 }
 
 func TestGoBLogger(t *testing.T) {
@@ -53,24 +58,24 @@ func TestGoBLogger(t *testing.T) {
 
 }
 
-//func TestGoBLoggerToFile(t *testing.T) {
-//	parentLogger := NewGoBLogger("Main")
-//	app, _ := appenders.DefaultFileAppender()
-//	fileapp := app.(*appenders.FileAppender)
-//	//fmt.Println(reflect.TypeOf(app))
-//	parentLogger.SetAppender(app)
-//	var cc chan int = make(chan int)
-//	go func() {
-//		for i := 0; i < 2; i++ {
-//			parentLogger.Infof("#####################=%d", i)
-//			parentLogger.Info("my name is info.")
-//			parentLogger.Debugf("#####################=%d", i)
-//			parentLogger.Debug("My name is debug.")
-//			parentLogger.Errorf("#####################=%d", i)
-//			parentLogger.Error("my name is error.")
-//		}
-//		cc <- 1
-//	}()
-//	<-cc
-//	fileapp.Dispose()
-//}
+func TestGoBLoggerToFile(t *testing.T) {
+	parentLogger := NewGoBLogger("Main")
+	app, _ := appenders.DefaultFileAppender()
+	fileapp := app.(*appenders.FileAppender)
+	//fmt.Println(reflect.TypeOf(app))
+	parentLogger.SetAppender(app)
+	var cc chan int = make(chan int)
+	go func() {
+		for i := 0; i < 2; i++ {
+			parentLogger.Infof("#####################=%d", i)
+			parentLogger.Info("my name is info.")
+			parentLogger.Debugf("#####################=%d", i)
+			parentLogger.Debug("My name is debug.")
+			parentLogger.Errorf("#####################=%d", i)
+			parentLogger.Error("my name is error.")
+		}
+		cc <- 1
+	}()
+	<-cc
+	fileapp.Dispose()
+}

@@ -2,17 +2,15 @@ package appenders
 
 import (
 	"GoBLog/base"
-	//"fmt"
 	"time"
 )
 
 //can support mutiple type appender.
 type multipleOutputAppender struct {
-	Appender
-	base.IDispose
+	AppenderBase
 	appenderList []Appender
-
-	syncChan chan chanMsg
+	isDispose    bool
+	syncChan     chan chanMsg
 }
 
 type chanMsg struct {
@@ -32,6 +30,7 @@ func NewMultipleAppender(maxQueue int, childAppenders ...Appender) Appender {
 		syncChan:     make(chan chanMsg, maxQueue),
 	}
 	go obj.processWriteString()
+	obj.isDispose = false
 	return obj
 }
 
@@ -44,27 +43,35 @@ func (this *multipleOutputAppender) processWriteString() {
 }
 
 func (this *multipleOutputAppender) WriteString(level base.LogLevel, location string, dtime time.Time, message string, args ...interface{}) {
-	this.syncChan <- chanMsg{
-		level,
-		location,
-		dtime,
-		message,
-		args,
+	if !this.isDispose {
+		this.syncChan <- chanMsg{
+			level,
+			location,
+			dtime,
+			message,
+			args,
+		}
 	}
 }
 
 func (this *multipleOutputAppender) Dispose() error {
-	for try := 10; try > 0; try-- {
-		if len(this.syncChan) <= 0 {
-			break
+	defer this.mu_lock.Unlock()
+	this.mu_lock.Lock()
+	if !this.isDispose {
+		this.isDispose = true
+		for try := 10; try > 0; try-- {
+			time.Sleep(time.Millisecond * 50)
+			if len(this.syncChan) <= 0 {
+				//fmt.Println("multipleOutputAppender syncChan=0")
+				break
+			}
 		}
-		time.Sleep(time.Millisecond * 100)
-	}
-	for _, appender := range this.appenderList {
-		ref, ok := appender.(base.IDispose)
-		if ok {
-			//fmt.Println("multipleOutputAppender Dispose")
-			ref.Dispose()
+		for _, appender := range this.appenderList {
+			ref, ok := appender.(base.IDispose)
+			if ok {
+				//fmt.Println("multipleOutputAppender Dispose")
+				ref.Dispose()
+			}
 		}
 	}
 	return nil

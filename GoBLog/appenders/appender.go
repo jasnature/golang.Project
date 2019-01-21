@@ -6,6 +6,8 @@ package appenders
 
 import (
 	"GoBLog/base"
+	"GoBLog/formatters"
+	"sync"
 	"time"
 )
 
@@ -16,6 +18,18 @@ type Appender interface {
 type AppenderManager interface {
 	Appender() Appender
 	SetAppender(appender Appender)
+}
+
+//Appender common base
+type AppenderBase struct {
+	Appender
+	base.IDispose
+	formatters.FormatterManager
+	formatter formatters.Formatter
+
+	isDispose  bool
+	mu_lock    sync.Mutex
+	bufferChan chan string
 }
 
 //auto date filename and append model
