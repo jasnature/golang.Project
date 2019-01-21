@@ -1,6 +1,6 @@
-# [Some golang Projects]  [一些 Go lang 语言开发的项目]  
+# [Golang Projects]  
 
-## [Folder Description]  [项目文件介绍]  
+## [Folder Description] 
 
 ### [ConnProxy 正/反代理工具]  
 This is used go language to develope program of proxy server with support http and https.   
@@ -19,7 +19,7 @@ This is used go language to develope program of proxy server with support http a
 * 4.自动切换反向配置的代理服务器，也可以自己实现切换策略  
 * 5.支持大并发连接。
 
-### [GOBLog]  log record for golang program
+### [GOBLog go 日志系统]  log record for golang program
 This is log writer for go program runing.
 
 ===Propertys and functions===
