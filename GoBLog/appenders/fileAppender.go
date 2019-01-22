@@ -35,13 +35,17 @@ type FileAppender struct {
 	template_ByDate string
 	//auto set name base on date yyyy-MM-dd
 	logNameAuto bool
+
+	tickFlushStream   *time.Ticker
+	autoFlushDuration time.Duration
 }
 
 //params see of NewFileCustomAppender function
 func NewFileAppender(filepathAndName string, appendModel bool) (obj *FileAppender, err error) {
 	//fmt.Println("NewFileAppender")
 	//return NewFileCustomAppender(filepathAndName, appendModel, base.Byte*300, base.Byte*700, 3)
-	return NewFileCustomAppender(filepathAndName, appendModel, base.KB*64, base.MB*6, 10)
+
+	return NewFileCustomAppender(filepathAndName, appendModel, base.KB*256, base.MB*6, 10)
 }
 
 //filepathAndName: filename or full path,if set "" then auto filename base on date name.
@@ -63,16 +67,16 @@ func NewFileCustomAppender(filepathAndName string, appendModel bool, bufferSize 
 		bufferSize = 1024 * 128
 	}
 	obj = &FileAppender{
-
 		maxFileSize:       int64(maxfilesize),
 		maxBackupDayIndex: maxbakRollIndexByDay,
 		currentfilePath:   filepathAndName,
 		appendModel:       appendModel,
 		writtenBytes:      0,
+		autoFlushDuration: time.Second * 60,
 	}
 
 	obj.formatter = formatters.DefaultPatternFormatter()
-	obj.bufferChan = make(chan string, 100)
+	obj.bufferChan = make(chan string, 1000)
 	if strings.TrimSpace(filepathAndName) == "" {
 		obj.currentfilePath = base.DefaultUtil().NowTimeStr(2) + ".log"
 		obj.logNameAuto = true
@@ -104,6 +108,8 @@ func NewFileCustomAppender(filepathAndName string, appendModel bool, bufferSize 
 	go obj.processWriteChan()
 	obj.isDispose = false
 
+	obj.tickFlushStream = time.NewTicker(obj.autoFlushDuration)
+
 	return obj, err
 }
 
@@ -115,27 +121,44 @@ func (this *FileAppender) WriteString(level base.LogLevel, location string, dtim
 	}
 }
 
+//It is sync method
 func (this *FileAppender) processWriteChan() {
 
 	for msg := range this.bufferChan {
 		//fmt.Println(msg)
 		//len([]rune(msg)) this len is count num
-		realBytes := []byte(msg)
 
-		var lencount int64 = int64(len(realBytes))
-		atomic.AddInt64(&this.writtenBytes, lencount)
-
-		//fmt.Printf("WriteString Print: current=%d total=%d max=%d \r\n", len(realBytes), this.writtenBytes, this.maxFileSize)
-
-		_, err := this.bufferIO.WriteString(msg)
-		//fmt.Printf("->Write bufferIO:%s error=%+v \r\n", this.currentfilePath, err)
-
-		if this.writtenBytes >= this.maxFileSize {
-			result := this.rotateFile()
-			if !result {
-				_, err = this.bufferIO.WriteString(msg)
-				fmt.Printf("->Wait has been rotate,write msg. error=%s \r\n", err)
+		select {
+		case <-this.tickFlushStream.C:
+			if this.bufferIO.Buffered() > 0 {
+				this.bufferIO.Flush()
+				//fmt.Println("->find have buffer and call Flush()")
 			}
+			this.writeBuffer(msg)
+			//fmt.Println("->tickFlushStream call")
+		default:
+			this.writeBuffer(msg)
+		}
+
+	}
+}
+
+func (this *FileAppender) writeBuffer(msg string) {
+	realBytes := []byte(msg)
+
+	var lencount int64 = int64(len(realBytes))
+	atomic.AddInt64(&this.writtenBytes, lencount)
+
+	fmt.Printf("WriteString Print: current=%d total=%d max=%d \r\n", len(realBytes), this.writtenBytes, this.maxFileSize)
+
+	_, err := this.bufferIO.WriteString(msg)
+	//fmt.Printf("->Write bufferIO:%s error=%+v \r\n", this.currentfilePath, err)
+
+	if this.writtenBytes >= this.maxFileSize {
+		result := this.rotateFile()
+		if !result {
+			_, err = this.bufferIO.WriteString(msg)
+			fmt.Printf("->Wait has been rotate,write msg. error=%s \r\n", err)
 		}
 	}
 }
