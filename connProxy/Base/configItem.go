@@ -16,7 +16,11 @@ type ProxyConfig struct {
 	AllowMaxConn int32
 	AllowMaxWait int32
 
-	Timeout int
+	//Auto,Deadline
+	TimeoutModel string
+	Timeout      int
+
+	LogLevel string
 }
 
 type ReverseProxys struct {

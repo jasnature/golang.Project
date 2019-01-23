@@ -4,21 +4,24 @@ PrintLog: console show log
 PrintIpSummary: console show timer(6s) call summary info
 -->
 <ProxyConfig port="9696" printConsoleLog="true" printSummary="false">
+	<!--Default=DEBUG (level order: FATAL<ERROR<WARN<INFO<DEBUG<TRACE) -->
+	<LogLevel>WARN</LogLevel>
 	<!--reverse proxy set list-->
 	<ReverseProxys>
-		<!--<Server score="100" >10.21.30.13:9696</Server>
-		<Server score="100" >10.21.30.13:9697</Server>
+		<Server score="100" >10.21.30.13:9696</Server>
+		<!--<Server score="100" >10.21.30.13:9697</Server>
 		<Server score="100" >10.21.30.13:9698</Server>-->
 	</ReverseProxys>
 	<!--Allow Ip list,if empty then only localhost,if * then any or set ip.(e.g: 192.168.1.1,192.168.1.2,192.168.1.3)-->
 	<AllowIpStr>*</AllowIpStr>
 	<!--memory buffer length for each conn-->
-	<BuffSize>16384</BuffSize>
+	<BuffSize>65535</BuffSize>
 	<!--max conn of concurrence handle-->
 	<AllowMaxConn>100</AllowMaxConn>
 	<!--max wait accept of conn-->
 	<AllowMaxWait>20</AllowMaxWait>
-	<!-- waiting read or write during seconds timeout of whether have other data buffer stream transform-->
-	<!-- 等待写入流或者读取流中断操作的超时时间，正常有数据将不会计算。-->
+	<!--[Auto,Deadline]  auto: if have buffer read or write then continue otherwise start wait timeout. Deadline:  Start calc absolute timeout after dial success-->
+	<TimeoutModel>Auto</TimeoutModel>
+	<!-- timeout seconds for TimeoutModel, min value 3s-->
 	<Timeout>6</Timeout>
 </ProxyConfig>

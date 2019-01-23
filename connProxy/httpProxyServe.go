@@ -2,6 +2,7 @@
 package main
 
 import (
+	logbase "GoBLog/base"
 	"bufio"
 	"connProxy/base"
 	"fmt"
@@ -17,7 +18,9 @@ import (
 )
 
 var configMgr *base.ConfigManager
-var timeout_dur time.Duration
+
+//calc second result of timeout
+var timeout_seconds_dur time.Duration
 
 func init() {
 	fmt.Println("httpProxyServe init")
@@ -66,6 +69,13 @@ func (this *ProxyServer) initProxy() {
 	} else {
 		fmt.Println("Cannot find local xml config, use default inner params init.")
 		base.Log.Warnf("Cannot find local xml config, use default inner params init. err=%v", esl)
+	}
+	if this.config.LogLevel != "" {
+		val, ok := logbase.LogLevelStringMap[this.config.LogLevel]
+		if ok {
+			fmt.Printf("Log Level=%s\r\n", this.config.LogLevel)
+			base.Log.SetLevel(val)
+		}
 	}
 
 	//esl := configMgr.SaveConfig(&proxy.config)
@@ -126,10 +136,16 @@ func (this *ProxyServer) initProxy() {
 
 	this.outConnectionNotify = make(chan int, this.config.AllowMaxConn)
 
-	if this.config.Timeout < 2 {
+	if this.config.TimeoutModel == "" {
+		this.config.TimeoutModel = "auto"
+	} else {
+		this.config.TimeoutModel = strings.ToLower(this.config.TimeoutModel)
+	}
+
+	if this.config.Timeout < 3 {
 		this.config.Timeout = 10
 	}
-	timeout_dur = time.Second * time.Duration(this.config.Timeout)
+	timeout_seconds_dur = time.Second * time.Duration(this.config.Timeout)
 
 	this.closerConnNotify = make(chan string, int(this.config.AllowMaxConn))
 
@@ -184,16 +200,16 @@ func (this *ProxyServer) initProxy() {
 func (this *ProxyServer) wLog(format string, a ...interface{}) {
 	if this.config.PrintConsoleLog {
 		if a != nil {
-			fmt.Fprintf(os.Stdout, "\r\n"+format+"\r\n", a...)
+			fmt.Fprintf(os.Stdout, "\r\n["+time.Now().String()[:23]+"] "+format+"\r\n", a...)
 		} else {
-			fmt.Fprintln(os.Stdout, format)
+			fmt.Fprintln(os.Stdout, "["+time.Now().String()[:23]+"] "+format)
 		}
 	}
 }
 
 func (this *ProxyServer) wErrlog(a ...interface{}) {
 
-	fmt.Fprintf(os.Stdout, "\r\n[Error]\r\n %s \r\n---------------------------", a)
+	fmt.Fprintf(os.Stdout, "\r\n ["+time.Now().String()[:23]+"][Error]\r\n %s \r\n---------------------------", a)
 
 }
 
@@ -267,7 +283,7 @@ func (this *ProxyServer) StartProxy() {
 				atomic.AddInt32(currentWait, -1)
 				atomic.AddInt32(&this.linkingCount, 1)
 				this.proxyConnectionHandle(conn)
-			case <-time.After(timeout_dur):
+			case <-time.After((timeout_seconds_dur + (time.Second * 5))): //add 5 seconds for wait conn
 				this.wLog("wait conn timeout: %s", conn.RemoteAddr().String())
 				base.Log.Debugf("wait conn timeout: %s", conn.RemoteAddr().String())
 				defer func() {
@@ -300,6 +316,7 @@ func (this *ProxyServer) enterMaxConnControl() {
 }
 
 func (this *ProxyServer) proxyConnectionHandle(clientConn net.Conn) {
+	//v, ok := clientConn.(io.Seeker)
 	this.wLog("ConnectionHandle->: %s", clientConn.RemoteAddr().String())
 	base.Log.Debugf("ConnectionHandle->: %s", clientConn.RemoteAddr().String())
 	var err error
@@ -322,7 +339,7 @@ func (this *ProxyServer) proxyConnectionHandle(clientConn net.Conn) {
 
 	defer this.DeferCallClose(clientConn)
 
-	clientConn.SetDeadline(time.Now().Add(timeout_dur))
+	clientConn.SetDeadline(time.Now().Add(timeout_seconds_dur))
 
 	var dialHost string
 	var requestBuild *http.Request = nil
@@ -354,15 +371,15 @@ func (this *ProxyServer) proxyConnectionHandle(clientConn net.Conn) {
 	this.wLog("Call DialByTimeout by:%s for clientip:%s", dialHost, clientConn.RemoteAddr().String())
 	base.Log.Debugf("Call DialByTimeout by:%s for clientip:%s", dialHost, clientConn.RemoteAddr().String())
 
-	proDialConn, err := net.DialTimeout("tcp", dialHost, timeout_dur)
+	proDialConn, err := net.DialTimeout("tcp", dialHost, timeout_seconds_dur)
 
 	if proDialConn != nil {
-		proDialConn.SetDeadline(time.Now().Add(timeout_dur))
+		proDialConn.SetDeadline(time.Now().Add(timeout_seconds_dur))
 	}
 
 	if err != nil {
 		this.wErrlog("ClientIp=" + clientConn.RemoteAddr().String() + "  DialError:" + err.Error())
-		base.Log.Errorf("ClientIp=%s  DialError:%s", clientConn.RemoteAddr().String(), err.Error())
+		base.Log.Warnf("ClientIp=%s  DialError:%s", clientConn.RemoteAddr().String(), err.Error())
 		if useReverseProxys {
 			if v, ok := this.reverseProxyMap[dialHost]; ok {
 				v.ErrorCount++
@@ -398,10 +415,14 @@ func (this *ProxyServer) proxyConnectionHandle(clientConn net.Conn) {
 	go func() {
 
 		var buf []byte = make([]byte, this.config.BuffSize)
-		io.CopyBuffer(proDialConn, clientConn, buf)
-
-		this.wLog("read clientConn->write proDialConn end,clientIP:%s", clientConn.RemoteAddr().String())
-		base.Log.Debugf("read clientConn->write proDialConn end,clientIP:%s", clientConn.RemoteAddr().String())
+		var readwriteError error
+		if this.config.TimeoutModel == "auto" {
+			_, readwriteError = base.DefUtil.CopyBufferForRollTimeout(proDialConn, clientConn, buf, timeout_seconds_dur)
+		} else {
+			_, readwriteError = io.CopyBuffer(proDialConn, clientConn, buf)
+		}
+		this.wLog("read clientConn->write proDialConn end,clientIP:%s dialToIp:%s error:%s", clientConn.RemoteAddr().String(), proDialConn.RemoteAddr().String(), readwriteError)
+		base.Log.Debugf("read clientConn->write proDialConn end,clientIP:%s dialToIp:%s error:%s", clientConn.RemoteAddr().String(), proDialConn.RemoteAddr().String(), readwriteError)
 
 		completedChan <- 1
 	}()
@@ -410,20 +431,16 @@ func (this *ProxyServer) proxyConnectionHandle(clientConn net.Conn) {
 	go func() {
 
 		var buf []byte = make([]byte, this.config.BuffSize)
-		io.CopyBuffer(clientConn, proDialConn, buf)
+		var readwriteError error
+		if this.config.TimeoutModel == "auto" {
+			_, readwriteError = base.DefUtil.CopyBufferForRollTimeout(clientConn, proDialConn, buf, timeout_seconds_dur)
+		} else {
+			_, readwriteError = io.CopyBuffer(clientConn, proDialConn, buf)
+		}
 
-		//		var temp []byte = make([]byte, this_proxy.config.BuffSize)
-		//		for {
-		//			n, e := proDialConn.Read(temp)
-		//			fmt.Println("\r\ntemp:", n, e)
-		//			if e == io.EOF || n <= 0 {
-		//				break
-		//			}
-		//			clientConn.Write(temp[:n])
-		//		}
+		this.wLog("read proDialConn->write clientConn end,clientIP:%s dialToIp:%s error:%s", clientConn.RemoteAddr().String(), proDialConn.RemoteAddr().String(), readwriteError)
+		base.Log.Debugf("read proDialConn->write clientConn end,clientIP:%s dialToIp:%s error:%s", clientConn.RemoteAddr().String(), proDialConn.RemoteAddr().String(), readwriteError)
 
-		this.wLog("read proDialConn->write clientConn end,clientIP:%s", clientConn.RemoteAddr().String())
-		base.Log.Debugf("read proDialConn->write clientConn end,clientIP:%s", clientConn.RemoteAddr().String())
 		completedChan <- 1
 	}()
 
@@ -462,6 +479,7 @@ func (this *ProxyServer) processParams(clientConn net.Conn, accerr error) bool {
 	}
 	if accerr != nil {
 		this.wErrlog("Accept conn", accerr.Error())
+		base.Log.Warnf("Accept conn error:%s", accerr.Error())
 		go this.DeferCallClose(clientConn)
 		return false
 	}
@@ -471,6 +489,7 @@ func (this *ProxyServer) processParams(clientConn net.Conn, accerr error) bool {
 		reip := reip_port[:i]
 		if _, ok := this.allowIpMap[reip]; !ok {
 			this.wLog("disallow->%s", reip)
+			base.Log.Infof("Disallow IP enter->%s", reip)
 			clientConn.Write([]byte("HTTP/1.1 403 Forbidden  \r\nServer: JProxy-1.0 \r\nContent-Type: text/html \r\nConnection:keep-alive \r\nContent-Length: 13 \r\n\r\n Deny access."))
 			go this.DeferCallClose(clientConn)
 			return false
@@ -490,12 +509,13 @@ func (this *ProxyServer) DeferCallClose(closer net.Conn) {
 	defer func() {
 		if p := recover(); p != nil {
 			this.wErrlog("##DeferCallClose Recover Info:##", p)
+			base.Log.Errorf("DeferCallClose Recover Info:%s", p)
 		}
 	}()
 	if closer != nil {
 		reip := closer.RemoteAddr().String()
 		this.wLog("Close call=%s", reip)
-
+		base.Log.Debugf("Close call=%s", reip)
 		//if conn, ok := closer.(net.Conn); ok {
 		this.closerConnNotify <- reip
 
