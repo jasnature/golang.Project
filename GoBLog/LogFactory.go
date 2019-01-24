@@ -76,7 +76,7 @@ func (this *LogFactory) createFileAppender(name string) appenders.Appender {
 	if name == "" {
 		fapp, _ = appenders.DefaultFileAppender()
 	} else {
-		fapp, _ = appenders.NewFileAppender("./Log_Record/"+name, true)
+		fapp, _ = appenders.NewFileAppender("./logs/"+name, true)
 	}
 	return fapp
 }

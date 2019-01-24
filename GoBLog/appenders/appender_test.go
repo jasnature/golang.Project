@@ -3,34 +3,55 @@ package appenders
 import (
 	"GoBLog/base"
 	"GoBLog/formatters"
+
+	//"fmt"
 	"testing"
 	"time"
 	//"time"
 )
 
-//func TestConsole(t *testing.T) {
-//	console := NewConsoleAppender()
-//	console.WriteString(base.DEBUG, "TestConsole=%d", 666)
+func TestConsole(t *testing.T) {
+	console := NewConsoleAppender()
+	console.WriteString(base.DEBUG, "TestConsole=%d", 666)
 
-//	console.SetFormatter(formatters.DefaultPatternFormatter())
-//	console.WriteString(base.TRACE, "TestConsole=%d", 666)
+	console.SetFormatter(formatters.DefaultPatternFormatter())
+	console.WriteString(base.TRACE, "TestConsole=%d", 666)
+}
+
+//func TestFileRolling(t *testing.T) {
+
+//	//filer, _ := NewFileAppender("goblog.log", true)
+//	filer, _ := NewFileAppender("./test", true)
+
+//	//filer.WriteString(base.DEBUG, "TestFileRolling=%d %s", 1, "1111")
+
+//	filer.SetFormatter(formatters.DefaultPatternFormatter())
+//	for i := 0; i < 10; i++ {
+//		filer.WriteString(base.TRACE, "test", time.Now(), "TestFileRolling=[%d] %s", i, "中文测试")
+//		time.Sleep(time.Millisecond * 10)
+//	}
+
+//	t.Logf("dispose:%v \r\n", filer.Dispose())
+
 //}
 
-func TestFileRolling(t *testing.T) {
+//func TestFileRollingAutoFlush(t *testing.T) {
 
-	//filer, _ := NewFileAppender("goblog.log", true)
-	filer, _ := NewFileAppender("./test", true)
+//	//filer, _ := NewFileAppender("goblog.log", true)
+//	filer, _ := NewFileAppender("./test", true)
 
-	//filer.WriteString(base.DEBUG, "TestFileRolling=%d %s", 1, "1111")
+//	//filer.WriteString(base.DEBUG, "TestFileRolling=%d %s", 1, "1111")
 
-	filer.SetFormatter(formatters.DefaultPatternFormatter())
-	for i := 0; i < 20; i++ {
-		filer.WriteString(base.TRACE, "test", time.Now(), "TestFileRolling=[%d] %s", i, "中文测试")
-		time.Sleep(time.Millisecond * 10)
-	}
-	t.Logf("dispose:%v \r\n", filer.Dispose())
+//	filer.SetFormatter(formatters.DefaultPatternFormatter())
+//	for i := 0; i < 66; i++ {
+//		filer.WriteString(base.TRACE, "test", time.Now(), "TestFileRolling=[%d] %s", i, "中文测试")
+//		//fmt.Println("11")
+//		//time.Sleep(time.Millisecond * 100)
+//	}
+//	time.Sleep(time.Millisecond * 5000)
+//	t.Logf("dispose:%v \r\n", filer.Dispose())
 
-}
+//}
 
 //func TestDefaultFileRolling(t *testing.T) {
 //	var ffi, _ = DefaultFileAppender()

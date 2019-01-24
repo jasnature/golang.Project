@@ -20,6 +20,12 @@ type AppenderManager interface {
 	SetAppender(appender Appender)
 }
 
+//auto filename by date and append log model
+//buffer 256KB,max size 6MB for each file , auto flush buffer each 60s.
+func DefaultFileAppender() (Appender, error) {
+	return NewFileAppender("", true)
+}
+
 //Appender common base
 type AppenderBase struct {
 	Appender
@@ -30,10 +36,4 @@ type AppenderBase struct {
 	isDispose  bool
 	mu_lock    sync.Mutex
 	bufferChan chan string
-}
-
-//auto date filename and append model
-//buffer 64KB, file size max 6MB
-func DefaultFileAppender() (Appender, error) {
-	return NewFileAppender("", true)
 }

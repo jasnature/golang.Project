@@ -36,8 +36,12 @@ type FileAppender struct {
 	//auto set name base on date yyyy-MM-dd
 	logNameAuto bool
 
-	tickFlushStream   *time.Ticker
-	autoFlushDuration time.Duration
+	tickFlushStream    *time.Ticker
+	autoFlushDuration  time.Duration
+	notifyFlushChan    chan byte
+	notifyContinueChan chan byte
+	isFlushing         bool
+	isWriteing         bool
 }
 
 //params see of NewFileCustomAppender function
@@ -67,12 +71,14 @@ func NewFileCustomAppender(filepathAndName string, appendModel bool, bufferSize 
 		bufferSize = 1024 * 128
 	}
 	obj = &FileAppender{
-		maxFileSize:       int64(maxfilesize),
-		maxBackupDayIndex: maxbakRollIndexByDay,
-		currentfilePath:   filepathAndName,
-		appendModel:       appendModel,
-		writtenBytes:      0,
-		autoFlushDuration: time.Second * 60,
+		maxFileSize:        int64(maxfilesize),
+		maxBackupDayIndex:  maxbakRollIndexByDay,
+		currentfilePath:    filepathAndName,
+		appendModel:        appendModel,
+		writtenBytes:       0,
+		autoFlushDuration:  time.Second * 1,
+		notifyFlushChan:    make(chan byte),
+		notifyContinueChan: make(chan byte),
 	}
 
 	obj.formatter = formatters.DefaultPatternFormatter()
@@ -109,6 +115,8 @@ func NewFileCustomAppender(filepathAndName string, appendModel bool, bufferSize 
 	obj.isDispose = false
 
 	obj.tickFlushStream = time.NewTicker(obj.autoFlushDuration)
+	go obj.tickerAutoFlush()
+	obj.isFlushing = false
 
 	return obj, err
 }
@@ -125,41 +133,70 @@ func (this *FileAppender) WriteString(level base.LogLevel, location string, dtim
 func (this *FileAppender) processWriteChan() {
 
 	for msg := range this.bufferChan {
-		//fmt.Println(msg)
-		//len([]rune(msg)) this len is count num
+		this.isWriteing = true
 
-		select {
-		case <-this.tickFlushStream.C:
-			if this.bufferIO.Buffered() > 0 {
-				this.bufferIO.Flush()
-				//fmt.Println("->find have buffer and call Flush()")
+		//auto flush
+		if this.isFlushing {
+			this.isFlushing = false
+			//fmt.Println("wait auto flush...")
+			this.notifyFlushChan <- 1
+			select {
+			case <-time.Tick(time.Second * 15): //timeout
+			case <-this.notifyContinueChan:
 			}
-			this.writeBuffer(msg)
-			//fmt.Println("->tickFlushStream call")
-		default:
-			this.writeBuffer(msg)
+			//fmt.Println("wait flush end...")
 		}
 
+		//fmt.Println(msg)
+		//len([]rune(msg)) this len is count num
+		realBytes := []byte(msg)
+
+		var lencount int64 = int64(len(realBytes))
+		atomic.AddInt64(&this.writtenBytes, lencount)
+
+		//fmt.Printf("WriteString Print: current=%d total=%d max=%d \r\n", len(realBytes), this.writtenBytes, this.maxFileSize)
+
+		this.bufferIO.WriteString(msg)
+		//_, err :=
+		//fmt.Printf("->Write bufferIO:%s error=%+v \r\n", this.currentfilePath, err)
+
+		if this.writtenBytes >= this.maxFileSize {
+			result := this.rotateFile()
+			if !result {
+				this.bufferIO.WriteString(msg)
+				//_, err =
+				//fmt.Printf("->Wait has been rotate,write msg. error=%s \r\n", err)
+			}
+		}
+		time.Sleep(time.Millisecond * 500)
+
+		this.isWriteing = false
 	}
 }
 
-func (this *FileAppender) writeBuffer(msg string) {
-	realBytes := []byte(msg)
+func (this *FileAppender) tickerAutoFlush() {
+	//fmt.Println("->tickerAutoFlush init")
+	var bufcount int = 0
 
-	var lencount int64 = int64(len(realBytes))
-	atomic.AddInt64(&this.writtenBytes, lencount)
+	for _ = range this.tickFlushStream.C {
+		bufcount = this.bufferIO.Buffered()
+		if bufcount > 0 && (this.isWriteing || len(this.bufferChan) > 0) {
+			//fmt.Println("->notify write chan will be call Flush...")
+			this.isFlushing = true
+			select {
+			case <-time.Tick(time.Second * 15): //timeout
+			case <-this.notifyFlushChan:
+			}
+			this.bufferIO.Flush()
+			//fmt.Println("->notify write and call Flush end")
+			this.notifyContinueChan <- 1
+			this.isFlushing = false
 
-	fmt.Printf("WriteString Print: current=%d total=%d max=%d \r\n", len(realBytes), this.writtenBytes, this.maxFileSize)
-
-	_, err := this.bufferIO.WriteString(msg)
-	//fmt.Printf("->Write bufferIO:%s error=%+v \r\n", this.currentfilePath, err)
-
-	if this.writtenBytes >= this.maxFileSize {
-		result := this.rotateFile()
-		if !result {
-			_, err = this.bufferIO.WriteString(msg)
-			fmt.Printf("->Wait has been rotate,write msg. error=%s \r\n", err)
+		} else if bufcount > 0 {
+			this.bufferIO.Flush()
+			//fmt.Println("->direct call Flush()")
 		}
+		//fmt.Println("->tickFlushStream call")
 	}
 }
 
@@ -241,7 +278,7 @@ func (this *FileAppender) Dispose() (err error) {
 
 	if this != nil && !this.isDispose {
 		this.isDispose = true
-
+		this.tickFlushStream.Stop()
 		for try := 10; try > 0; try-- {
 			time.Sleep(time.Millisecond * 200)
 			if len(this.bufferChan) <= 0 && this.bufferIO.Buffered() <= 0 {
@@ -273,6 +310,7 @@ func (this *FileAppender) closeFileStream() (err error) {
 	}
 	return err
 }
+
 func (this *FileAppender) openFileStream() error {
 	mode := os.O_WRONLY | os.O_APPEND | os.O_CREATE
 	if !this.appendModel {
