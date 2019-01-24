@@ -5,7 +5,7 @@ PrintIpSummary: console show timer(6s) call summary info
 -->
 <ProxyConfig port="9696" printConsoleLog="true" printSummary="false">
 	<!--Default=DEBUG (level order: FATAL<ERROR<WARN<INFO<DEBUG<TRACE) -->
-	<LogLevel>WARN</LogLevel>
+	<LogLevel>DEBUG</LogLevel>
 	<!--reverse proxy set list-->
 	<ReverseProxys>
 		<Server score="100" >10.21.30.13:9696</Server>
@@ -23,5 +23,5 @@ PrintIpSummary: console show timer(6s) call summary info
 	<!--[Auto,Deadline]  auto: if have buffer read or write then continue otherwise start wait timeout. Deadline:  Start calc absolute timeout after dial success-->
 	<TimeoutModel>Auto</TimeoutModel>
 	<!-- timeout seconds for TimeoutModel, min value 3s-->
-	<Timeout>6</Timeout>
+	<Timeout>3</Timeout>
 </ProxyConfig>

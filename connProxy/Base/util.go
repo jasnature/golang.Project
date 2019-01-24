@@ -115,33 +115,22 @@ func (u *Util) TraceMethodInfo(funcname string, data ...interface{}) func() {
 // copyBuffer is the actual implementation of Copy and CopyBuffer.
 // if buf is nil, one is allocated.
 func (u *Util) CopyBufferForRollTimeout(dst net.Conn, src net.Conn, buf []byte, timeout time.Duration) (written int64, err error) {
-	if buf != nil && len(buf) == 0 {
-		panic("empty buffer in io.CopyBuffer")
-	}
 
-	if buf == nil {
+	if buf == nil || (buf != nil && len(buf) == 0) {
 		//32K
 		size := 32 * 1024
-		//if buf it is Limited Reader then buffer size full set.
-		//		if l, ok := src.(*io.LimitedReader); ok && int64(size) > l.N {
-		//			if l.N < 1 {
-		//				size = 1
-		//			} else {
-		//				size = int(l.N)
-		//			}
-		//		}
 		buf = make([]byte, size)
 	}
+
 	var ticktime = timeout - (time.Second * 2)
-
 	ticker := time.NewTicker(ticktime)
-
 	defer ticker.Stop()
 
 	var (
 		er error
 		nr int
 	)
+	//lastTime := time.Now()
 	for {
 		select {
 		case <-ticker.C:
@@ -149,34 +138,38 @@ func (u *Util) CopyBufferForRollTimeout(dst net.Conn, src net.Conn, buf []byte, 
 				return written, err
 			}
 			src.SetDeadline(time.Now().Add(timeout))
-			//dst.SetDeadline(time.Now().Add(timeout))
-			fmt.Printf("NewTicker enter timeoutvalue=%d timedate=%s\r\n", ticktime/time.Second, time.Now().Add(timeout).String())
+			dst.SetDeadline(time.Now().Add(timeout))
+			//fmt.Printf("Read SrcConn:%s \r\nticker enter timeoutcall=%ds Deadline=%s cudate=%s\r\n", src.RemoteAddr().String(), ticktime/time.Second, time.Now().Add(timeout).String(), time.Now().String())
 		default:
-			{
-				nr, er = src.Read(buf)
-				if nr > 0 {
-					nw, ew := dst.Write(buf[0:nr])
-					if nw > 0 {
-						written += int64(nw)
-					}
-					if ew != nil {
-						err = ew
-						return
-					}
-					if nr != nw {
-						err = io.ErrShortWrite
-						return
-					}
-				}
-				if er != nil {
-					err = er
-					if er == io.EOF {
-						err = nil
-					}
-					return
-				}
+		}
+
+		//TODO: this is limit download flow code, wait config
+		//if time.Now().Sub(lastTime) >= (time.Millisecond * 500) {
+		//lastTime = time.Now()
+
+		nr, er = src.Read(buf)
+		if nr > 0 {
+			nw, ew := dst.Write(buf[0:nr])
+			if nw > 0 {
+				written += int64(nw)
+			}
+			if ew != nil {
+				err = ew
+				return
+			}
+			if nr != nw {
+				err = io.ErrShortWrite
+				return
 			}
 		}
+		if er != nil {
+			err = er
+			if er == io.EOF {
+				err = nil
+			}
+			return
+		}
+		//}
 
 	}
 	return written, err
