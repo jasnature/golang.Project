@@ -23,5 +23,5 @@ func (this *SimpleFormatter) Format(level base.LogLevel, location string, dtime 
 		strL = fmt.Sprint(args...)
 	}
 
-	return fmt.Sprintf("[%s] %s %s \n", base.LogLevelIntMap[level], base.DefaultUtil().NowTimeStr(0), strL)
+	return fmt.Sprintf("[%s] %s %s \n", base.LogLevelIntMap[level], base.DefaultUtil().NowTimeStr(time.Now(), 0), strL)
 }

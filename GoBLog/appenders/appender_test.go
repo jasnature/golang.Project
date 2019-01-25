@@ -10,30 +10,44 @@ import (
 	//"time"
 )
 
-func TestConsole(t *testing.T) {
-	console := NewConsoleAppender()
-	console.WriteString(base.DEBUG, "TestConsole=%d", 666)
+//func TestConsole(t *testing.T) {
+//	console := NewConsoleAppender()
+//	console.WriteString(base.DEBUG, "TestConsole=%d", 666)
 
-	console.SetFormatter(formatters.DefaultPatternFormatter())
-	console.WriteString(base.TRACE, "TestConsole=%d", 666)
-}
-
-//func TestFileRolling(t *testing.T) {
-
-//	//filer, _ := NewFileAppender("goblog.log", true)
-//	filer, _ := NewFileAppender("./test", true)
-
-//	//filer.WriteString(base.DEBUG, "TestFileRolling=%d %s", 1, "1111")
-
-//	filer.SetFormatter(formatters.DefaultPatternFormatter())
-//	for i := 0; i < 10; i++ {
-//		filer.WriteString(base.TRACE, "test", time.Now(), "TestFileRolling=[%d] %s", i, "中文测试")
-//		time.Sleep(time.Millisecond * 10)
-//	}
-
-//	t.Logf("dispose:%v \r\n", filer.Dispose())
-
+//	console.SetFormatter(formatters.DefaultPatternFormatter())
+//	console.WriteString(base.TRACE, "TestConsole=%d", 666)
 //}
+
+func TestFileRolling(t *testing.T) {
+
+	//filer, _ := NewFileAppender("goblog.log", true)
+	filer, _ := NewFileAppender("./test.log", true)
+
+	//filer.WriteString(base.DEBUG, "TestFileRolling=%d %s", 1, "1111")
+	//wait := make(chan int)
+	filer.SetFormatter(formatters.DefaultPatternFormatter())
+
+	go func() {
+		for i := 0; i < 1000; i++ {
+			filer.WriteString(base.TRACE, "test", time.Now(), "TestFileRolling=[%d] %s", i, "中文测试")
+			filer.WriteString(base.TRACE, "test", time.Now(), "TestFileRolling=[%d] %s", i, "中文测试")
+			filer.WriteString(base.TRACE, "test", time.Now(), "TestFileRolling=[%d] %s", i, "中文测试")
+			filer.WriteString(base.TRACE, "test", time.Now(), "TestFileRolling=[%d] %s", i, "中文测试")
+			filer.WriteString(base.TRACE, "test", time.Now(), "TestFileRolling=[%d] %s", i, "中文测试")
+			//fmt.Printf("TestFileRolling :%d dt:%v\r\n", i, time.Now())
+			//time.Sleep(time.Millisecond * 400)
+			//			if i >= 99 {
+			//				fmt.Printf("wait end send \r\n")
+			//				wait <- 1
+			//			}
+		}
+	}()
+
+	//<-wait
+	time.Sleep(time.Second * 4)
+	t.Logf("dispose:%v \r\n", filer.Dispose())
+
+}
 
 //func TestFileRollingAutoFlush(t *testing.T) {
 

@@ -119,18 +119,18 @@ func (u *Util) TraceMethodInfo(funcname string, data ...interface{}) func() {
 //1 - not include millisecond
 //2 - only date(yyyy-MM-dd)
 //3 - only date(yy-MM-dd)
-func (u *Util) NowTimeStr(flag int) string {
-	nowTime := time.Now().String()
+func (u *Util) NowTimeStr(setTime time.Time, flag int) string {
+	t := setTime.String()
 	str := ""
 	switch flag {
 	case 0:
-		str = nowTime[:23]
+		str = t[:23]
 	case 1:
-		str = nowTime[:19]
+		str = t[:19]
 	case 2:
-		str = nowTime[:10]
+		str = t[:10]
 	case 3:
-		str = nowTime[2:10]
+		str = t[2:10]
 	}
 	return str
 }

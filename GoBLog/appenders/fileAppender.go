@@ -24,9 +24,10 @@ type FileAppender struct {
 	appendModel bool
 
 	//Has been write bytes
-	writtenBytes int64
-	bufferIO     *bufio.Writer
-	fileStream   *os.File
+	writtenBytes     int64
+	bufferIO         *bufio.Writer
+	fileStream       *os.File
+	fileLastOpenTime time.Time
 
 	currentfilePath string
 	currentfileName string
@@ -36,7 +37,7 @@ type FileAppender struct {
 	//auto set name base on date yyyy-MM-dd
 	logNameAuto bool
 
-	tickFlushStream    *time.Ticker
+	tickCheckTimer     *time.Ticker
 	autoFlushDuration  time.Duration
 	notifyFlushChan    chan byte
 	notifyContinueChan chan byte
@@ -47,7 +48,7 @@ type FileAppender struct {
 //params see of NewFileCustomAppender function
 func NewFileAppender(filepathAndName string, appendModel bool) (obj *FileAppender, err error) {
 	//fmt.Println("NewFileAppender")
-	//return NewFileCustomAppender(filepathAndName, appendModel, base.Byte*300, base.Byte*700, 3)
+	//return NewFileCustomAppender(filepathAndName, appendModel, base.Byte*300, base.KB*60, 3)
 
 	return NewFileCustomAppender(filepathAndName, appendModel, base.KB*256, base.MB*6, 10)
 }
@@ -76,7 +77,7 @@ func NewFileCustomAppender(filepathAndName string, appendModel bool, bufferSize 
 		currentfilePath:    filepathAndName,
 		appendModel:        appendModel,
 		writtenBytes:       0,
-		autoFlushDuration:  time.Second * 1,
+		autoFlushDuration:  time.Second * 50,
 		notifyFlushChan:    make(chan byte),
 		notifyContinueChan: make(chan byte),
 	}
@@ -84,7 +85,7 @@ func NewFileCustomAppender(filepathAndName string, appendModel bool, bufferSize 
 	obj.formatter = formatters.DefaultPatternFormatter()
 	obj.bufferChan = make(chan string, 1000)
 	if strings.TrimSpace(filepathAndName) == "" {
-		obj.currentfilePath = base.DefaultUtil().NowTimeStr(2) + ".log"
+		obj.currentfilePath = base.DefaultUtil().NowTimeStr(time.Now(), 2) + ".log"
 		obj.logNameAuto = true
 	}
 
@@ -114,8 +115,8 @@ func NewFileCustomAppender(filepathAndName string, appendModel bool, bufferSize 
 	go obj.processWriteChan()
 	obj.isDispose = false
 
-	obj.tickFlushStream = time.NewTicker(obj.autoFlushDuration)
-	go obj.tickerAutoFlush()
+	obj.tickCheckTimer = time.NewTicker(obj.autoFlushDuration)
+	go obj.tickerAutoCheck()
 	obj.isFlushing = false
 
 	return obj, err
@@ -168,17 +169,17 @@ func (this *FileAppender) processWriteChan() {
 				//fmt.Printf("->Wait has been rotate,write msg. error=%s \r\n", err)
 			}
 		}
-		time.Sleep(time.Millisecond * 500)
+		//time.Sleep(time.Millisecond * 500)
 
 		this.isWriteing = false
 	}
 }
 
-func (this *FileAppender) tickerAutoFlush() {
-	//fmt.Println("->tickerAutoFlush init")
+func (this *FileAppender) tickerAutoCheck() {
+	//fmt.Println("->tickerAutoCheck init")
 	var bufcount int = 0
 
-	for _ = range this.tickFlushStream.C {
+	for _ = range this.tickCheckTimer.C {
 		bufcount = this.bufferIO.Buffered()
 		if bufcount > 0 && (this.isWriteing || len(this.bufferChan) > 0) {
 			//fmt.Println("->notify write chan will be call Flush...")
@@ -196,7 +197,12 @@ func (this *FileAppender) tickerAutoFlush() {
 			this.bufferIO.Flush()
 			//fmt.Println("->direct call Flush()")
 		}
-		//fmt.Println("->tickFlushStream call")
+		//day auto change
+		if time.Now().Day() != this.fileLastOpenTime.Day() {
+			this.rotateFile()
+			//fmt.Println("->day check enter....")
+		}
+		//fmt.Println("->tickerAutoCheck call")
 	}
 }
 
@@ -204,15 +210,15 @@ func (this *FileAppender) rotateFile() bool {
 	defer this.mu_lock.Unlock()
 	this.mu_lock.Lock()
 
-	if this.writtenBytes >= this.maxFileSize {
-		fmt.Println("->rotate File start...")
+	if (this.writtenBytes >= this.maxFileSize) || (time.Now().Day() != this.fileLastOpenTime.Day()) {
+		//fmt.Println("->rotate File start...")
 
 		this.bufferIO.Flush()
 
 		this.closeFileStream()
 		defer this.openFileStream()
 
-		dayname := base.DefaultUtil().NowTimeStr(2)
+		dayname := base.DefaultUtil().NowTimeStr(this.fileLastOpenTime, 2)
 
 		var oldF, newF string
 		for n := this.maxBackupDayIndex - 1; n > 0; n-- {
@@ -243,7 +249,7 @@ func (this *FileAppender) rotateFile() bool {
 
 		defer atomic.StoreInt64(&this.writtenBytes, 0)
 
-		fmt.Println("->rotate File end.")
+		//fmt.Println("->rotate File end.")
 
 		return true
 	}
@@ -278,7 +284,7 @@ func (this *FileAppender) Dispose() (err error) {
 
 	if this != nil && !this.isDispose {
 		this.isDispose = true
-		this.tickFlushStream.Stop()
+		this.tickCheckTimer.Stop()
 		for try := 10; try > 0; try-- {
 			time.Sleep(time.Millisecond * 200)
 			if len(this.bufferChan) <= 0 && this.bufferIO.Buffered() <= 0 {
@@ -306,7 +312,7 @@ func (this *FileAppender) closeFileStream() (err error) {
 		if err == nil {
 			this.fileStream = nil
 		}
-		//fmt.Printf("->closeFileStream,%s,err=%v \r\n", this.currentfilePath, err)
+		fmt.Printf("->closeFileStream,%s,err=%v \r\n", this.currentfilePath, err)
 	}
 	return err
 }
@@ -332,6 +338,7 @@ func (this *FileAppender) openFileStream() error {
 	if finfo != nil {
 		atomic.StoreInt64(&this.writtenBytes, finfo.Size())
 	}
-	//fmt.Printf("->openFileStream,%s,size=%d,err=%v \r\n", this.currentfilePath, this.writtenBytes, err)
+	this.fileLastOpenTime = time.Now()
+	//fmt.Printf("->openFileStream,%s,size=%d,err=%v fileLastOpenTime=%v\r\n", this.currentfilePath, this.writtenBytes, err, this.fileLastOpenTime)
 	return err
 }
