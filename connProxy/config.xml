@@ -4,24 +4,26 @@ PrintLog: console show log
 PrintIpSummary: console show timer(6s) call summary info
 -->
 <ProxyConfig port="9696" printConsoleLog="true" printSummary="false">
-	<!--Default=DEBUG (level order: FATAL<ERROR<WARN<INFO<DEBUG<TRACE) -->
-	<LogLevel>DEBUG</LogLevel>
-	<!--reverse proxy set list-->
-	<ReverseProxys>
-		<Server score="100" >10.21.30.13:9696</Server>
-		<!--<Server score="100" >10.21.30.13:9697</Server>
+  <!--Default=DEBUG (level order: FATAL<ERROR<WARN<INFO<DEBUG<TRACE) -->
+  <LogLevel>DEBUG</LogLevel>
+  <!--reverse proxy set list-->
+  <ReverseProxys>
+    <!--<Server score="100" >10.21.30.13:9696</Server>
+    <Server score="100" >10.21.30.13:9697</Server>
 		<Server score="100" >10.21.30.13:9698</Server>-->
-	</ReverseProxys>
-	<!--Allow Ip list,if empty then only localhost,if * then any or set ip.(e.g: 192.168.1.1,192.168.1.2,192.168.1.3)-->
-	<AllowIpStr>*</AllowIpStr>
-	<!--memory buffer length for each conn-->
-	<BuffSize>65535</BuffSize>
-	<!--max conn of concurrence handle-->
-	<AllowMaxConn>100</AllowMaxConn>
-	<!--max wait accept of conn-->
-	<AllowMaxWait>20</AllowMaxWait>
-	<!--[Auto,Deadline]  auto: if have buffer read or write then continue otherwise start wait timeout. Deadline:  Start calc absolute timeout after dial success-->
-	<TimeoutModel>Auto</TimeoutModel>
-	<!-- timeout seconds for TimeoutModel, min value 3s-->
-	<Timeout>3</Timeout>
+  </ReverseProxys>
+  <!--Allow * or ip list or ip range,if empty then only localhost,if value equal * then any ip or set ip, use , to split.
+  (e.g): single ip 192.168.1.1,192.168.1.2  ip range 192.168.1.1-192.168.1.200,192.168.1.1-192.168.255.255
+  -->
+  <AllowIpStr>*</AllowIpStr>
+  <!--memory buffer length for each conn-->
+  <BuffSize>65535</BuffSize>
+  <!--max conn of concurrence handle-->
+  <AllowMaxConn>100</AllowMaxConn>
+  <!--max wait accept of conn that wait timeout=Timeout Node value + 5s-->
+  <AllowMaxWait>20</AllowMaxWait>
+  <!--[Auto,Deadline]  auto: if have buffer read or write then continue otherwise start wait timeout. Deadline:  Start calc absolute timeout after dial success-->
+  <TimeoutModel>Auto</TimeoutModel>
+  <!-- timeout seconds for TimeoutModel, min value 3s-->
+  <Timeout>5</Timeout>
 </ProxyConfig>

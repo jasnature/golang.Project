@@ -4,6 +4,7 @@ package base
 import (
 	"GoBLog"
 	logbase "GoBLog/base"
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -173,4 +174,17 @@ func (u *Util) CopyBufferForRollTimeout(dst net.Conn, src net.Conn, buf []byte, 
 
 	}
 	return written, err
+}
+
+func (u *Util) CheckIpInRange(trialIp net.IP, start net.IP, end net.IP) bool {
+	if trialIp.To4() == nil {
+		//fmt.Printf("%v is not an IPv4 address\n", trialIp)
+		return false
+	}
+	if bytes.Compare(trialIp, start) >= 0 && bytes.Compare(trialIp, end) <= 0 {
+		//fmt.Printf("%v is between %v and %v\n", trialIp, start, end)
+		return true
+	}
+	//fmt.Printf("%v is NOT between %v and %v\n", trialIp, start, end)
+	return false
 }

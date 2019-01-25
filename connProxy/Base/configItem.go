@@ -1,6 +1,9 @@
 package base
 
-import "fmt"
+import (
+	"fmt"
+	"net"
+)
 
 type ProxyConfig struct {
 	Port            string `xml:"port,attr"`
@@ -23,6 +26,12 @@ type ProxyConfig struct {
 	LogLevel string
 }
 
+//  <!--client Network control-->
+//  <NetworkTrafficControl enable="true" maxBytes="65535">
+//    <Client ip="10.21.30.159"  maxBytes="32768"/>
+//	<Client ip="10.21.30.160-10.21.30.200" />
+//  </NetworkTrafficControl>
+
 type ReverseProxys struct {
 	Servers []Server `xml:"Server"`
 }
@@ -40,4 +49,9 @@ type Server struct {
 	Status     int   `xml:"-"`
 	HandleSum  int64 `xml:"-"`
 	ErrorCount int   `xml:"-"`
+}
+
+type IpRange struct {
+	Start net.IP
+	End   net.IP
 }

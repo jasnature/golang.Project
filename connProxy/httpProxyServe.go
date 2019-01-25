@@ -22,6 +22,8 @@ var configMgr *base.ConfigManager
 //calc second result of timeout
 var timeout_seconds_dur time.Duration
 
+const ipRangeMapName = "IPRangeMap"
+
 func init() {
 	fmt.Println("httpProxyServe init")
 	base.Log.Info("httpProxyServe init")
@@ -43,7 +45,7 @@ type ProxyServer struct {
 	//e-ReversePorxy
 
 	//start ip control
-	allowIpMap map[string]string
+	allowIpMap map[string][]base.IpRange
 	allowAllIp bool
 	//end ip control
 
@@ -81,13 +83,13 @@ func (this *ProxyServer) initProxy() {
 	//esl := configMgr.SaveConfig(&proxy.config)
 	//fmt.Println("save", esl)
 
-	this.allowIpMap = make(map[string]string, 5)
+	this.allowIpMap = make(map[string][]base.IpRange, 5)
 	this.curIpLink = make(map[string]int, 10)
 
-	this.allowIpMap["."] = "1"
-	this.allowIpMap["[::1]"] = "1"
-	this.allowIpMap["localhost"] = "1"
-	this.allowIpMap["127.0.0.1"] = "1"
+	this.allowIpMap["."] = nil
+	this.allowIpMap["[::1]"] = nil
+	this.allowIpMap["localhost"] = nil
+	this.allowIpMap["127.0.0.1"] = nil
 
 	if this.config.AllowIpStr != "" {
 
@@ -98,8 +100,24 @@ func (this *ProxyServer) initProxy() {
 			this.allowAllIp = false
 
 			spstr := strings.Split(this.config.AllowIpStr, ",")
+			var ranglist []base.IpRange
+
 			for _, spitem := range spstr {
-				this.allowIpMap[spitem] = spitem
+				if strings.Index(spitem, "-") > 0 {
+					//ip range
+					rangitem := strings.Split(spitem, "-")
+					ranglist = append(ranglist, base.IpRange{
+						Start: net.ParseIP(rangitem[0]),
+						End:   net.ParseIP(rangitem[1]),
+					})
+				} else {
+					//single ip
+					this.allowIpMap[spitem] = nil
+				}
+			}
+			if ranglist != nil && len(ranglist) > 0 {
+				this.allowIpMap[ipRangeMapName] = ranglist
+				//fmt.Printf("IPRangeMap,%+v \r\n", ranglist)
 			}
 		}
 	}
@@ -485,14 +503,32 @@ func (this *ProxyServer) processParams(clientConn net.Conn, accerr error) bool {
 	}
 
 	if !this.allowAllIp {
-		i := strings.LastIndex(reip_port, ":")
-		reip := reip_port[:i]
+
+		reip := reip_port[:strings.LastIndex(reip_port, ":")]
+
 		if _, ok := this.allowIpMap[reip]; !ok {
-			this.wLog("disallow->%s", reip)
-			base.Log.Infof("Disallow IP enter->%s", reip)
-			clientConn.Write([]byte("HTTP/1.1 403 Forbidden  \r\nServer: JProxy-1.0 \r\nContent-Type: text/html \r\nConnection:keep-alive \r\nContent-Length: 13 \r\n\r\n Deny access."))
-			go this.DeferCallClose(clientConn)
-			return false
+
+			iprangResult := false
+
+			if rangMap, ok := this.allowIpMap[ipRangeMapName]; ok {
+				ipv4 := net.ParseIP(reip)
+				for _, iprange := range rangMap {
+					if base.DefUtil.CheckIpInRange(ipv4, iprange.Start, iprange.End) {
+						iprangResult = true
+						//fmt.Printf("CheckIpInRange result:%v checkip:%v \r\n", iprangResult, ipv4)
+						base.Log.Debugf("Find IP allow range->%s rang->%v", reip, iprange)
+						break
+					}
+				}
+			}
+
+			if !iprangResult {
+				this.wLog("disallow->%s", reip)
+				base.Log.Infof("Disallow IP enter->%s", reip)
+				clientConn.Write([]byte("HTTP/1.1 403 Forbidden  \r\nServer: JProxy-1.0 \r\nContent-Type: text/html \r\nConnection:keep-alive \r\nContent-Length: 13 \r\n\r\n Deny access."))
+				go this.DeferCallClose(clientConn)
+				return false
+			}
 		}
 	}
 
