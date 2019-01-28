@@ -187,8 +187,22 @@ func (this *GoBLogger) Fatal(params ...interface{}) { this.Log(base.FATAL, "", p
 func (this *GoBLogger) Fatalf(formate string, params ...interface{}) {
 	this.Log(base.FATAL, formate, params...)
 }
-func (this *GoBLogger) Error(params ...interface{}) { this.Log(base.ERROR, "", params...) }
+func (this *GoBLogger) Error(params ...interface{}) {
+	errStackMsg := ""
+	errbuf := make([]byte, 1<<20)
+	ernum := runtime.Stack(errbuf, false)
+	if ernum > 0 {
+		errStackMsg = string(errbuf[:ernum])
+	}
+	this.Log(base.ERROR, "", fmt.Sprint(params...), "\n Stack list as below:\n", errStackMsg)
+
+}
 func (this *GoBLogger) Errorf(formate string, params ...interface{}) {
+	errbuf := make([]byte, 1<<20)
+	ernum := runtime.Stack(errbuf, false)
+	if ernum > 0 {
+		formate = fmt.Sprintf("%s \n Stack list as below:\n %s", formate, string(errbuf[:ernum]))
+	}
 	this.Log(base.ERROR, formate, params...)
 }
 func (this *GoBLogger) Warn(params ...interface{}) { this.Log(base.WARN, "", params...) }
