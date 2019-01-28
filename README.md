@@ -35,3 +35,5 @@ This is log writer for go program runing.
 * 4.can support logger factory pool manager.
 * 5.can support multiple thread log writer.
 * 6.can support rotate file config. 
+* 7.support error collect stack info list.  
+* 8.support log level write different file or output.
