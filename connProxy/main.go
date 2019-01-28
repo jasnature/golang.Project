@@ -5,6 +5,9 @@ import (
 	"connProxy/base"
 	"flag"
 	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
 )
 
 var (
@@ -15,6 +18,11 @@ var (
 )
 
 func main() {
+	os.Exit(run())
+}
+
+func run() (code int) {
+
 	fmt.Println("Start proxy...!")
 	base.Log.Info("Start proxy...!")
 	flag.StringVar(&pt, "pt", "9696", "please input listen port.def(9696)")
@@ -27,7 +35,33 @@ func main() {
 	configObj := base.ProxyConfig{Port: pt, PrintConsoleLog: plog == 1, BuffSize: buf, AllowIpStr: allowIp}
 	proxy := &ProxyServer{config: configObj}
 
-	proxy.StartProxy()
+	defer func() {
+		if r := recover(); r != nil {
+			base.Log.Errorf("run error: %v", r)
+			code = 2
+		}
+		proxy.Dispose()
+		return
+	}()
 
-	//fmt.Println("End proxy...!", proxy)
+	c := make(chan os.Signal)
+	signal.Notify(c)
+	go func() {
+		for sig := range c {
+			switch sig {
+			case syscall.SIGHUP, syscall.SIGINT, syscall.SIGKILL, syscall.SIGTERM, syscall.SIGQUIT:
+				base.Log.Warnf("exit sig=%+v", sig)
+				fmt.Println("kill", sig)
+				proxy.Dispose()
+				os.Exit(0)
+			default:
+				base.Log.Warnf("other sig=%+v", sig)
+				fmt.Println("other", sig)
+			}
+		}
+
+	}()
+	proxy.StartProxy()
+	proxy.Dispose()
+	return 0
 }

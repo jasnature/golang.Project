@@ -11,7 +11,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"runtime"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -32,6 +31,8 @@ func init() {
 
 type ProxyServer struct {
 	config base.ProxyConfig
+
+	linkListener net.Listener
 
 	linkingCount       int32
 	totalAcceptCounter int64
@@ -233,18 +234,22 @@ func (this *ProxyServer) wErrlog(a ...interface{}) {
 
 func (this *ProxyServer) StartProxy() {
 	var (
-		link net.Listener
-		err  error
+		err error
 	)
 
 	defer func() {
-		link.Close()
 		if p := recover(); p != nil {
+
+			base.Log.Errorf("Recover StartProxy Error:%s", p)
 			this.wErrlog("##Recover StartProxy Error:##", p)
-			base.Log.Errorf("Recover StartProxy Error:%v", p)
+
 			time.Sleep(time.Second * 5)
 			this.wLog("Find Server exception Restart call StartProxy->")
 			this.StartProxy()
+		}
+
+		if this.linkListener != nil {
+			this.linkListener.Close()
 		}
 	}()
 
@@ -252,7 +257,7 @@ func (this *ProxyServer) StartProxy() {
 	this.initProxy()
 	addrStr := ":" + this.config.Port
 
-	link, err = net.Listen("tcp", addrStr)
+	this.linkListener, err = net.Listen("tcp", addrStr)
 
 	if err != nil {
 		this.wErrlog("Port has been used.", err.Error())
@@ -269,7 +274,10 @@ func (this *ProxyServer) StartProxy() {
 	*currentWait = 0
 	for {
 
-		conn, accerr := link.Accept()
+		conn, accerr := this.linkListener.Accept()
+		if conn == nil {
+			continue
+		}
 		this.wLog("Accept conn: %s", conn.RemoteAddr().String())
 		base.Log.Debugf("Accept conn: %s", conn.RemoteAddr().String())
 
@@ -348,10 +356,11 @@ func (this *ProxyServer) proxyConnectionHandle(clientConn net.Conn) {
 				this.DeferCallClose(clientConn)
 			}
 			this.wErrlog("##Recover Info:##", p)
-			errbuf := make([]byte, 1<<20)
-			ernum := runtime.Stack(errbuf, false)
-			this.wErrlog("##Recover Stack:##\r\n", string(errbuf[:ernum]))
-			base.Log.Errorf("Recover Info:%s Recover Stack:%s", p, string(errbuf[:ernum]))
+			//errbuf := make([]byte, 1<<20)
+			//ernum := runtime.Stack(errbuf, false)
+			//this.wErrlog("##Recover Stack:##\r\n", string(errbuf[:ernum]))
+
+			base.Log.Errorf("Recover Info:%s Recover Stack:%s", p)
 		}
 	}()
 
@@ -556,5 +565,16 @@ func (this *ProxyServer) DeferCallClose(closer net.Conn) {
 		this.closerConnNotify <- reip
 
 		closer.Close()
+	}
+}
+
+func (this *ProxyServer) Dispose() {
+	if this.linkListener != nil {
+		this.linkListener.Close()
+	}
+
+	if base.Log != nil {
+		time.Sleep(time.Millisecond * 500)
+		base.Log.Dispose()
 	}
 }
