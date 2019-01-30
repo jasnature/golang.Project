@@ -175,6 +175,7 @@ func (this *GoBLogger) String() string {
 		this.logName, this.FullLinkName(), TypeName, len(this.childrens), this.Level(), reflect.TypeOf(this.appender))
 }
 
+//pleae put this method to defer range
 func (this *GoBLogger) Dispose() error {
 	ref, ok := this.appender.(base.IDispose)
 	if ok {

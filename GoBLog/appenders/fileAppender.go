@@ -312,7 +312,7 @@ func (this *FileAppender) closeFileStream() (err error) {
 		if err == nil {
 			this.fileStream = nil
 		}
-		fmt.Printf("->closeFileStream,%s,err=%v \r\n", this.currentfilePath, err)
+		//fmt.Printf("->closeFileStream,%s,err=%v \r\n", this.currentfilePath, err)
 	}
 	return err
 }

@@ -26,6 +26,7 @@ type LogFactory struct {
 	mu            sync.Mutex
 }
 
+//New default name logger and output use file stream.
 func (this *LogFactory) GetLogger() ILogger {
 	return this.GetLoggerByName("", base.FileOutput)
 }
