@@ -34,7 +34,7 @@ func run() (code int) {
 	//linkCount: 0, addr: ip, port: pt, printLog: plog == 1, buffSize: buf, allowIpStr: allowIp
 	configObj := base.ProxyConfig{Port: pt, PrintConsoleLog: plog == 1, BuffSize: buf, AllowIpStr: allowIp}
 	proxy := &ProxyServer{config: configObj}
-
+	defer proxy.Dispose()
 	defer func() {
 		if r := recover(); r != nil {
 			base.Log.Errorf("run error: %v", r)
@@ -62,6 +62,6 @@ func run() (code int) {
 
 	}()
 	proxy.StartProxy()
-	proxy.Dispose()
+
 	return 0
 }
