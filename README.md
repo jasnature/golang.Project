@@ -4,10 +4,10 @@
 
 ### [ConnProxy 正/反代理工具]  
 This is used go language to develope program of proxy server with support http and https.   
-使用GO 语言开发的一个程序，它可以创建代理访问web服务器的工具，多级衔接或穿透配置，正向/反向，支持原始的TCP以及HTTP和HTTPS。  
+使用GO 语言开发的一个程序，它可以创建代理访问tcp或者web服务器的工具，多级衔接或穿透配置，正向/反向，支持原始的TCP以及HTTP和HTTPS。  
 
 ===Propertys and functions===   
-* 1.can custom config to manager the proxy server(timeout,conn num,wait num,filter ip,etc...).  
+* 1.can custom config to manager the proxy TCP/HTTP/HTTPS server(timeout,conn num,wait num,filter ip,etc...).  
 * 2.can set direct proxy link request.  
 * 3.can set reverse proxy server list and auto switch reverse proxy server or custom function to handle switch plot.  
 * 4.support queue wait,queue timeout,connection num control,ip filter.
