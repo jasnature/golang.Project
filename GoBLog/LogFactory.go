@@ -3,7 +3,6 @@ package GoBLog
 
 import (
 	"GoBLog/appenders"
-	"GoBLog/base"
 	"sync"
 )
 
@@ -17,6 +16,14 @@ func init() {
 	}
 }
 
+type RunOutputModel int
+
+const (
+	None          RunOutputModel = 0
+	ConsoleOutput RunOutputModel = 1
+	FileOutput    RunOutputModel = 2
+)
+
 var DefaultLogFactory *LogFactory
 
 type LogFactory struct {
@@ -26,12 +33,14 @@ type LogFactory struct {
 	mu            sync.Mutex
 }
 
-//New default name logger and output use file stream.
+//Get default name logger and output use file stream.
 func (this *LogFactory) GetLogger() ILogger {
-	return this.GetLoggerByName("", base.FileOutput)
+	return this.GetLoggerByName("", FileOutput)
 }
 
-func (this *LogFactory) GetLoggerByName(name string, runModel base.RunOutputModel) (newlogger ILogger) {
+//name filename and put in logs folder.
+//runModel[None-0 ConsoleOutput-1 FileOutput-2 or comb flag]
+func (this *LogFactory) GetLoggerByName(name string, runModel RunOutputModel) (newlogger ILogger) {
 	this.mu.Lock()
 	defer this.mu.Unlock()
 
@@ -56,12 +65,12 @@ func (this *LogFactory) GetLoggerByName(name string, runModel base.RunOutputMode
 
 	//appender
 	switch runModel {
-	case base.None:
+	case None:
 		newlogger.SetAppender(nil)
-	case base.FileOutput:
+	case FileOutput:
 		fapp := this.createFileAppender(name)
 		newlogger.SetAppender(fapp)
-	case base.ConsoleOutput | base.FileOutput:
+	case ConsoleOutput | FileOutput:
 		capp := appenders.NewConsoleAppender()
 		fapp := this.createFileAppender(name)
 		newlogger.SetAppender(appenders.NewMultipleAppender(50, fapp, capp))
@@ -82,10 +91,16 @@ func (this *LogFactory) createFileAppender(name string) appenders.Appender {
 	return fapp
 }
 
-func (this *LogFactory) LoggerPoolList() []ILogger {
-	loggers := make([]ILogger, 0)
+func (this *LogFactory) LoggerPoolList() []*ILogger {
+	loggers := make([]*ILogger, 0)
 	for _, v := range this.loggerPool {
-		loggers = append(loggers, v)
+		loggers = append(loggers, &v)
 	}
 	return loggers
+}
+
+func (this *LogFactory) DisposeAll() {
+	for _, v := range this.loggerPool {
+		v.Dispose()
+	}
 }
