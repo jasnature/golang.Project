@@ -1,9 +1,11 @@
 <!--
-port:listen accept port single:(1~65535)
+port:listen accept port single if support both http/s and socket please (web port,socket port) config and range(1~65535)
 PrintLog: console show log
 PrintIpSummary: console show timer(6s) call summary info
+protocol: [http](include http) [socket](include socket5) both
 -->
-<ProxyConfig port="9696" printConsoleLog="true" printSummary="false">
+<ProxyConfig port="9696,9697" prototype="both" printConsoleLog="true" printSummary="false">
+  <Socket auth="false" uid="root" pwd="root" ></Socket>
   <!--Default=DEBUG (level order: FATAL<ERROR<WARN<INFO<DEBUG<TRACE) -->
   <LogLevel>DEBUG</LogLevel>
   <!--reverse proxy set list-->
@@ -21,9 +23,10 @@ PrintIpSummary: console show timer(6s) call summary info
   <!--max conn of concurrence handle-->
   <AllowMaxConn>100</AllowMaxConn>
   <!--max wait accept of conn that wait timeout=Timeout Node value + 5s-->
-  <AllowMaxWait>20</AllowMaxWait>
+  <AllowMaxWait>50</AllowMaxWait>
   <!--[Auto,Deadline]  auto: if have buffer read or write then continue otherwise start wait timeout. Deadline:  Start calc absolute timeout after dial success-->
   <TimeoutModel>Auto</TimeoutModel>
   <!-- timeout seconds for TimeoutModel, min value 3s-->
   <Timeout>5</Timeout>
+
 </ProxyConfig>

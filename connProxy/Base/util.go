@@ -22,7 +22,7 @@ var DefUtil *Util
 
 func init() {
 	if Log == nil {
-		Log = GoBLog.DefaultLogFactory.GetLoggerByName("connLog", logbase.FileOutput)
+		Log = GoBLog.DefaultLogFactory.GetLoggerByName("connLog", GoBLog.FileOutput)
 		Log.SetLevel(logbase.DEBUG)
 		fmt.Println("init log write..")
 	}
@@ -187,4 +187,11 @@ func (u *Util) CheckIpInRange(trialIp net.IP, start net.IP, end net.IP) bool {
 	}
 	//fmt.Printf("%v is NOT between %v and %v\n", trialIp, start, end)
 	return false
+}
+
+//conn protocol it is(http/s socket)
+func (u *Util) switchProtocolType(conn net.Conn) (t byte) {
+
+	t = 1
+	return t
 }

@@ -7,6 +7,7 @@ import (
 
 type ProxyConfig struct {
 	Port            string `xml:"port,attr"`
+	Prototype       string `xml:"prototype,attr"`
 	PrintConsoleLog bool   `xml:"printConsoleLog,attr"`
 	PrintSummary    bool   `xml:"printSummary,attr"`
 
@@ -24,6 +25,15 @@ type ProxyConfig struct {
 	Timeout      int
 
 	LogLevel string
+
+	//socket
+	Socket SocketItem
+}
+
+type SocketItem struct {
+	Socket_Auth bool   `xml:"auth,attr"`
+	Socket_UID  string `xml:"uid,attr"`
+	Socket_PWD  string `xml:"pwd,attr"`
 }
 
 //  <!--client Network control-->

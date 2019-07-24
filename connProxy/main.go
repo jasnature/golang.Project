@@ -49,7 +49,7 @@ func run() (code int) {
 	go func() {
 		for sig := range c {
 			switch sig {
-			case syscall.SIGHUP, syscall.SIGINT, syscall.SIGKILL, syscall.SIGTERM, syscall.SIGQUIT:
+			case syscall.SIGHUP, syscall.SIGINT, syscall.SIGKILL, syscall.SIGTERM, syscall.SIGQUIT, os.Interrupt:
 				base.Log.Warnf("exit sig=%+v", sig)
 				fmt.Println("kill", sig)
 				proxy.Dispose()

@@ -5,6 +5,7 @@ import (
 	logbase "GoBLog/base"
 	"bufio"
 	"connProxy/base"
+	"connProxy/protocol"
 	"fmt"
 	"io"
 	"math/rand"
@@ -29,10 +30,15 @@ func init() {
 	configMgr, _ = base.NewConfigManager()
 }
 
+/*
+An proxy server that support http,https,socket5 protocol proxy and reverse proxy and more infomation.
+*/
 type ProxyServer struct {
 	config base.ProxyConfig
 
-	linkListener net.Listener
+	linkListenerMap map[string]net.Listener
+
+	socketHandle *protocol.SocketParser
 
 	linkingCount       int32
 	totalAcceptCounter int64
@@ -80,7 +86,9 @@ func (this *ProxyServer) initProxy() {
 			base.Log.SetLevel(val)
 		}
 	}
-
+	this.linkListenerMap = make(map[string]net.Listener, 2)
+	this.socketHandle = &protocol.SocketParser{}
+	this.socketHandle.Config = &this.config.Socket
 	//esl := configMgr.SaveConfig(&proxy.config)
 	//fmt.Println("save", esl)
 
@@ -248,16 +256,38 @@ func (this *ProxyServer) StartProxy() {
 			this.StartProxy()
 		}
 
-		if this.linkListener != nil {
-			this.linkListener.Close()
+		if this.linkListenerMap != nil {
+			this.Dispose()
 		}
 	}()
 
 	this.wLog("StartProxy->")
 	this.initProxy()
-	addrStr := ":" + this.config.Port
 
-	this.linkListener, err = net.Listen("tcp", addrStr)
+	addrStr := ":" + this.config.Port
+	this.wLog("[Print config] %+v", this.config)
+	base.Log.Debugf("[Print config] %+v", this.config)
+
+	go this.enterMaxConnControl()
+	switch strings.ToLower(this.config.Prototype) {
+
+	case "http":
+		this.AcceptTcpRequest(addrStr, 1, err)
+	case "socket":
+		this.AcceptTcpRequest(addrStr, 2, err)
+	default:
+		ports := strings.Split(this.config.Port, ",")
+		go this.AcceptTcpRequest(":"+ports[1], 2, err)
+		this.AcceptTcpRequest(":"+ports[0], 1, err)
+	}
+
+}
+
+//protype 1 web 2 socket
+func (this *ProxyServer) AcceptTcpRequest(addrStr string, protype byte, err error) {
+
+	linkListener, err := net.Listen("tcp", addrStr)
+	this.linkListenerMap[addrStr] = linkListener
 
 	if err != nil {
 		this.wErrlog("Port has been used.", err.Error())
@@ -265,16 +295,14 @@ func (this *ProxyServer) StartProxy() {
 		return
 	}
 
-	fmt.Printf("\r\n[Lister success info]: %+v \r\n\r\n", this.config)
-	base.Log.Infof("Proxy Config= %+v", this.config)
-
-	go this.enterMaxConnControl()
+	fmt.Printf("\r\n[Lister success info]:protype: %d %+v \r\n\r\n", protype, addrStr)
+	base.Log.Infof("[Lister success info]: %d %+v", addrStr, addrStr)
 
 	var currentWait *int32 = new(int32)
 	*currentWait = 0
 	for {
 
-		conn, accerr := this.linkListener.Accept()
+		conn, accerr := linkListener.Accept()
 		if conn == nil {
 			continue
 		}
@@ -308,7 +336,7 @@ func (this *ProxyServer) StartProxy() {
 			case <-this.enterConnectionNotify:
 				atomic.AddInt32(currentWait, -1)
 				atomic.AddInt32(&this.linkingCount, 1)
-				this.proxyConnectionHandle(conn)
+				this.proxyConnectionHandle(conn, protype)
 			case <-time.After((timeout_seconds_dur + (time.Second * 5))): //add 5 seconds for wait conn
 				this.wLog("wait conn timeout: %s", conn.RemoteAddr().String())
 				base.Log.Debugf("wait conn timeout: %s", conn.RemoteAddr().String())
@@ -323,177 +351,6 @@ func (this *ProxyServer) StartProxy() {
 
 	}
 
-}
-
-//max connection control by chan buffer
-func (this *ProxyServer) enterMaxConnControl() {
-	var i int32
-	for i = 0; i < this.config.AllowMaxConn; i++ {
-		this.enterConnectionNotify <- 1
-	}
-	this.wLog("enter max connection control->init:%d", i)
-	base.Log.Debugf("enter max connection control->init:%d", i)
-	for {
-		//this.wLog("wait -> outConnectionNotify...")
-		<-this.outConnectionNotify
-		this.enterConnectionNotify <- 1
-		//this.wLog("readd -> enterConnectionNotify")
-	}
-}
-
-func (this *ProxyServer) proxyConnectionHandle(clientConn net.Conn) {
-	//v, ok := clientConn.(io.Seeker)
-	this.wLog("ConnectionHandle->: %s", clientConn.RemoteAddr().String())
-	base.Log.Debugf("ConnectionHandle->: %s", clientConn.RemoteAddr().String())
-	var err error
-	defer func() {
-		atomic.AddInt32(&this.linkingCount, -1)
-		this.wLog("release one linkingCount:%d", this.linkingCount)
-		base.Log.Debugf("release one linkingCount:%d", this.linkingCount)
-		this.outConnectionNotify <- 1
-		if p := recover(); p != nil {
-			if clientConn != nil {
-				this.DeferCallClose(clientConn)
-			}
-			this.wErrlog("##Recover Info:##", p)
-			//errbuf := make([]byte, 1<<20)
-			//ernum := runtime.Stack(errbuf, false)
-			//this.wErrlog("##Recover Stack:##\r\n", string(errbuf[:ernum]))
-
-			base.Log.Errorf("Recover Info:%s Recover Stack:%s", p)
-		}
-	}()
-
-	defer this.DeferCallClose(clientConn)
-
-	clientConn.SetDeadline(time.Now().Add(timeout_seconds_dur))
-
-	var dialHost string
-	var requestBuild *http.Request = nil
-
-	var useReverseProxys bool = strings.TrimSpace(this.currentReverseProxy) != ""
-
-	if useReverseProxys {
-		dialHost = this.currentReverseProxy
-		if v, ok := this.reverseProxyMap[dialHost]; ok {
-			v.HandleSum++
-		}
-	} else {
-
-		bufread := bufio.NewReader(clientConn)
-		requestBuild, err = http.ReadRequest(bufread)
-
-		if err != nil {
-			return
-		}
-		this.wLog("Request Build,host= %s", requestBuild.Host)
-		base.Log.Debugf("Request Build,host= %s", requestBuild.Host)
-		dialHost = requestBuild.Host
-
-		if ppindex := strings.LastIndex(dialHost, ":"); ppindex < 0 {
-			dialHost += ":80"
-		}
-	}
-
-	this.wLog("Call DialByTimeout by:%s for clientip:%s", dialHost, clientConn.RemoteAddr().String())
-	base.Log.Debugf("Call DialByTimeout by:%s for clientip:%s", dialHost, clientConn.RemoteAddr().String())
-
-	proDialConn, err := net.DialTimeout("tcp", dialHost, timeout_seconds_dur)
-
-	if proDialConn != nil {
-		proDialConn.SetDeadline(time.Now().Add(timeout_seconds_dur))
-	}
-
-	if err != nil {
-		this.wErrlog("ClientIp=" + clientConn.RemoteAddr().String() + "  DialError:" + err.Error())
-		base.Log.Warnf("ClientIp=%s  DialError:%s", clientConn.RemoteAddr().String(), err.Error())
-		if useReverseProxys {
-			if v, ok := this.reverseProxyMap[dialHost]; ok {
-				v.ErrorCount++
-			}
-		}
-		return
-	}
-
-	defer this.DeferCallClose(proDialConn)
-
-	//direct dial url
-	if requestBuild != nil && !useReverseProxys {
-		if requestBuild.Method == "CONNECT" {
-			clientConn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
-			//_, err := io.WriteString(clientConn, )
-			this.wLog("clientip=%s,WriteString:%s,", clientConn.RemoteAddr().String(), "Connection Established\r\n")
-			base.Log.Debugf("clientip=%s,WriteString:%s,", clientConn.RemoteAddr().String(), "Connection Established\r\n")
-			if err != nil {
-				this.wLog("WriteString Error")
-				base.Log.Errorf("WriteString Error:%s", err)
-				return
-			}
-		} else {
-			requestBuild.Write(proDialConn)
-			this.wLog("WriteRequestHeaders,clientip=%s", clientConn.RemoteAddr().String())
-			base.Log.Debugf("WriteRequestHeaders,clientip=%s", clientConn.RemoteAddr().String())
-		}
-	}
-
-	var completedChan chan int = make(chan int)
-
-	//if clientConn have new request then read clientConn write proDialConn
-	go func() {
-
-		var buf []byte = make([]byte, this.config.BuffSize)
-		var readwriteError error
-		if this.config.TimeoutModel == "auto" {
-			_, readwriteError = base.DefUtil.CopyBufferForRollTimeout(proDialConn, clientConn, buf, timeout_seconds_dur)
-		} else {
-			_, readwriteError = io.CopyBuffer(proDialConn, clientConn, buf)
-		}
-		this.wLog("read clientConn->write proDialConn end,clientIP:%s dialToIp:%s error:%s", clientConn.RemoteAddr().String(), proDialConn.RemoteAddr().String(), readwriteError)
-		base.Log.Debugf("read clientConn->write proDialConn end,clientIP:%s dialToIp:%s error:%s", clientConn.RemoteAddr().String(), proDialConn.RemoteAddr().String(), readwriteError)
-
-		completedChan <- 1
-	}()
-
-	//if proDialConn have new respone then read proDialConn write clientConn
-	go func() {
-
-		var buf []byte = make([]byte, this.config.BuffSize)
-		var readwriteError error
-		if this.config.TimeoutModel == "auto" {
-			_, readwriteError = base.DefUtil.CopyBufferForRollTimeout(clientConn, proDialConn, buf, timeout_seconds_dur)
-		} else {
-			_, readwriteError = io.CopyBuffer(clientConn, proDialConn, buf)
-		}
-
-		this.wLog("read proDialConn->write clientConn end,clientIP:%s dialToIp:%s error:%s", clientConn.RemoteAddr().String(), proDialConn.RemoteAddr().String(), readwriteError)
-		base.Log.Debugf("read proDialConn->write clientConn end,clientIP:%s dialToIp:%s error:%s", clientConn.RemoteAddr().String(), proDialConn.RemoteAddr().String(), readwriteError)
-
-		completedChan <- 1
-	}()
-
-	var result int = 0
-	for {
-		result += <-completedChan
-		this.wLog("<-completedChan=%d", result)
-		base.Log.Debugf("<-completedChan=%d", result)
-		if result >= 2 {
-			close(completedChan)
-			this.wLog("closed all channel Connection end,clientIP=%s", clientConn.RemoteAddr().String())
-			base.Log.Debugf("closed all channel Connection end,clientIP=%s", clientConn.RemoteAddr().String())
-			break
-		}
-	}
-
-	//keep must be close chan
-	defer func(re int) {
-		if completedChan != nil {
-			if re < 2 {
-				close(completedChan)
-				this.wLog("if not closed then again to close Chan,clientIP=%s", clientConn.RemoteAddr().String())
-				base.Log.Infof("if not closed then again to close Chan,clientIP=%s", clientConn.RemoteAddr().String())
-			}
-		}
-	}(result)
 }
 
 func (this *ProxyServer) processParams(clientConn net.Conn, accerr error) bool {
@@ -550,6 +407,201 @@ func (this *ProxyServer) processParams(clientConn net.Conn, accerr error) bool {
 	return true
 }
 
+//max connection control by chan buffer
+func (this *ProxyServer) enterMaxConnControl() {
+	var i int32
+	//fill full can be enter
+	for i = 0; i < this.config.AllowMaxConn; i++ {
+		this.enterConnectionNotify <- 1
+	}
+	this.wLog("enter max connection control->init:%d", i)
+	base.Log.Debugf("enter max connection control->init:%d", i)
+	for {
+		//this.wLog("wait -> outConnectionNotify...")
+		<-this.outConnectionNotify
+		this.enterConnectionNotify <- 1
+		//this.wLog("readd -> enterConnectionNotify")
+	}
+}
+
+//protype 1 web 2 socket
+func (this *ProxyServer) proxyConnectionHandle(clientConn net.Conn, protype byte) {
+	//v, ok := clientConn.(io.Seeker)
+	this.wLog("ConnectionHandle->: %s", clientConn.RemoteAddr().String())
+	base.Log.Debugf("ConnectionHandle->: %s", clientConn.RemoteAddr().String())
+	var err error
+	defer func() {
+		atomic.AddInt32(&this.linkingCount, -1)
+		this.wLog("release one linkingCount:%d", this.linkingCount)
+		base.Log.Debugf("release one linkingCount:%d", this.linkingCount)
+		this.outConnectionNotify <- 1
+		if p := recover(); p != nil {
+			if clientConn != nil {
+				this.DeferCallClose(clientConn)
+			}
+			this.wErrlog("##Recover Info:##", p)
+			//errbuf := make([]byte, 1<<20)
+			//ernum := runtime.Stack(errbuf, false)
+			//this.wErrlog("##Recover Stack:##\r\n", string(errbuf[:ernum]))
+
+			base.Log.Errorf("Recover Info:%s Recover Stack:%s", p)
+		}
+	}()
+
+	defer this.DeferCallClose(clientConn)
+
+	clientConn.SetDeadline(time.Now().Add(timeout_seconds_dur))
+
+	var dialHost string
+	var requestBuild *http.Request = nil
+
+	var useReverseProxys bool = strings.TrimSpace(this.currentReverseProxy) != ""
+
+	if useReverseProxys {
+		//auto random if have some server.
+		dialHost = this.currentReverseProxy
+		if v, ok := this.reverseProxyMap[dialHost]; ok {
+			v.HandleSum++
+		}
+	} else {
+
+		//1 web 2 socket
+		switch protype {
+
+		case 1:
+
+			//Parse HTTP request url
+			bufread := bufio.NewReader(clientConn)
+			requestBuild, err = http.ReadRequest(bufread)
+
+			if err != nil {
+				this.wLog("Parse http error ->: %s %s", clientConn.RemoteAddr().String(), err)
+				base.Log.Errorf("Parse http error->: %s %s", clientConn.RemoteAddr().String(), err)
+				return
+			}
+
+			this.wLog("Request Build,host= %s", requestBuild.Host)
+			base.Log.Debugf("Request Build,host= %s", requestBuild.Host)
+			dialHost = requestBuild.Host
+
+			if ppindex := strings.LastIndex(dialHost, ":"); ppindex < 0 {
+				dialHost += ":80"
+			}
+
+		case 2:
+			//socker5
+			sockethead, err := this.socketHandle.ConnectAndParse(clientConn)
+			if err != nil {
+				this.wLog("Parse socket error ->: %s %s", clientConn.RemoteAddr().String(), err)
+				base.Log.Errorf("Parse socket error->: %s %s", clientConn.RemoteAddr().String(), err)
+				return
+			}
+			dialHost = sockethead.Join_HOST_PORT
+		}
+	}
+
+	this.wLog("Call DialByTimeout by:%s for clientip:%s", dialHost, clientConn.RemoteAddr().String())
+	base.Log.Debugf("Call DialByTimeout by:%s for clientip:%s", dialHost, clientConn.RemoteAddr().String())
+
+	proDialConn, err := net.DialTimeout("tcp", dialHost, timeout_seconds_dur)
+
+	if proDialConn != nil {
+		proDialConn.SetDeadline(time.Now().Add(timeout_seconds_dur))
+	}
+
+	if err != nil {
+		this.wErrlog("ClientIp=" + clientConn.RemoteAddr().String() + "  DialError:" + err.Error())
+		base.Log.Warnf("ClientIp=%s  DialError:%s", clientConn.RemoteAddr().String(), err.Error())
+		if useReverseProxys {
+			if v, ok := this.reverseProxyMap[dialHost]; ok {
+				v.ErrorCount++
+			}
+		}
+		return
+	}
+
+	defer this.DeferCallClose(proDialConn)
+
+	//if it is http/s request and do not use reverse server
+	if requestBuild != nil && !useReverseProxys {
+		if requestBuild.Method == "CONNECT" { //https
+			clientConn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
+			//this.wLog("clientip=%s,WriteString:%s,", clientConn.RemoteAddr().String(), "Connection Established\r\n")
+			base.Log.Debugf("clientip=%s,WriteString:%s,", clientConn.RemoteAddr().String(), "Connection Established\r\n")
+			if err != nil {
+				this.wLog("WriteString Error")
+				base.Log.Errorf("WriteString Error:%s", err)
+				return
+			}
+		} else {
+			//write has been head request to dial conn
+			requestBuild.Write(proDialConn)
+			this.wLog("WriteRequestHeaders,clientip=%s,", clientConn.RemoteAddr().String())
+			base.Log.Debugf("WriteRequestHeaders,clientip=%s", clientConn.RemoteAddr().String())
+		}
+	}
+
+	var completedChan chan int = make(chan int)
+
+	//if clientConn have new request then read clientConn write proDialConn
+	go func() {
+
+		var buf []byte = make([]byte, this.config.BuffSize)
+		var readwriteError error
+		if this.config.TimeoutModel == "auto" {
+			_, readwriteError = base.DefUtil.CopyBufferForRollTimeout(proDialConn, clientConn, buf, timeout_seconds_dur)
+		} else {
+			_, readwriteError = io.CopyBuffer(proDialConn, clientConn, buf)
+		}
+		this.wLog("read clientConn->write proDialConn end,clientIP:%s dialToIp:%s error:%s", clientConn.RemoteAddr().String(), proDialConn.RemoteAddr().String(), readwriteError)
+		base.Log.Debugf("read clientConn->write proDialConn end,clientIP:%s dialToIp:%s error:%s", clientConn.RemoteAddr().String(), proDialConn.RemoteAddr().String(), readwriteError)
+
+		completedChan <- 1
+	}()
+
+	//if proDialConn have new respone then read proDialConn write clientConn
+	go func() {
+
+		var buf []byte = make([]byte, this.config.BuffSize)
+		var readwriteError error
+		if this.config.TimeoutModel == "auto" {
+			_, readwriteError = base.DefUtil.CopyBufferForRollTimeout(clientConn, proDialConn, buf, timeout_seconds_dur)
+		} else {
+			_, readwriteError = io.CopyBuffer(clientConn, proDialConn, buf)
+		}
+
+		this.wLog("read proDialConn->write clientConn end,clientIP:%s dialToIp:%s error:%s", clientConn.RemoteAddr().String(), proDialConn.RemoteAddr().String(), readwriteError)
+		base.Log.Debugf("read proDialConn->write clientConn end,clientIP:%s dialToIp:%s error:%s", clientConn.RemoteAddr().String(), proDialConn.RemoteAddr().String(), readwriteError)
+
+		completedChan <- 1
+	}()
+
+	//exit counter
+	var result int = 0
+	for {
+		result += <-completedChan
+		this.wLog("<-completedChan=%d", result)
+		base.Log.Debugf("<-completedChan=%d", result)
+		if result >= 2 {
+			close(completedChan)
+			this.wLog("closed all channel Connection end,clientIP=%s", clientConn.RemoteAddr().String())
+			base.Log.Debugf("closed all channel Connection end,clientIP=%s", clientConn.RemoteAddr().String())
+			break
+		}
+	}
+
+	//keep must be close chan
+	defer func(re int) {
+		if completedChan != nil {
+			if re < 2 {
+				close(completedChan)
+				this.wLog("if not closed then again to close Chan,clientIP=%s", clientConn.RemoteAddr().String())
+				base.Log.Infof("if not closed then again to close Chan,clientIP=%s", clientConn.RemoteAddr().String())
+			}
+		}
+	}(result)
+}
+
 func (this *ProxyServer) DeferCallClose(closer net.Conn) {
 	defer func() {
 		if p := recover(); p != nil {
@@ -569,10 +621,13 @@ func (this *ProxyServer) DeferCallClose(closer net.Conn) {
 }
 
 func (this *ProxyServer) Dispose() {
-	if this.linkListener != nil {
-		this.linkListener.Close()
+	base.Log.Debugf("Dispose call start...")
+	for _, link := range this.linkListenerMap {
+		if link != nil {
+			link.Close()
+		}
 	}
-
+	base.Log.Debugf("Dispose call end...")
 	if base.Log != nil {
 		time.Sleep(time.Millisecond * 500)
 		base.Log.Dispose()
