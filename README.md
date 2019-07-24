@@ -7,7 +7,7 @@ This is used go language to develope program of proxy server with support http a
 使用GO 语言开发的一个程序，它可以创建代理访问tcp或者web服务器的工具，多级衔接或穿透配置，正向/反向，支持原始的TCP以及HTTP和HTTPS。  
 
 ===Propertys and functions===   
-* 1.can custom config to manager the proxy TCP/HTTP/HTTPS server(timeout,conn num,wait num,filter ip,etc...).  
+* 1.can custom config to manager the proxy TCP/HTTP/HTTPS/Socket5 server(timeout,conn num,wait num,filter ip,etc...).  
 * 2.can set direct proxy link request.  
 * 3.can set reverse proxy server list and auto switch reverse proxy server or custom function to handle switch plot.  
 * 4.support queue wait,queue timeout,connection num control,ip filter.
@@ -16,7 +16,7 @@ This is used go language to develope program of proxy server with support http a
 * 7.support long time file download.  
 * 8.etc....
 
-* 1.可以自定义配置进行代理工具的设置，目前包含 超时，最大并发连接数，最大等待数，IP过滤，等等。。。    
+* 1.可以自定义配置进行代理工具的设置(TCP/HTTP/HTTPS/Socket5)，目前包含 超时，最大并发连接数，最大等待数，IP过滤，等等。。。    
 * 2.支持直接代理访问。  
 * 3.支持多反向代理服务器设置，类似于nginx代理切换功能。  
 * 4.自动切换反向配置的代理服务器，也可以自己实现切换策略。  
