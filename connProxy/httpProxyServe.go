@@ -258,6 +258,7 @@ func (this *ProxyServer) StartProxy() {
 
 		if this.linkListenerMap != nil {
 			this.Dispose()
+
 		}
 	}()
 
